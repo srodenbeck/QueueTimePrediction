@@ -1,5 +1,7 @@
 # QueueTimePrediction
 
+### TROUT: Time-estimation Resource Optimization and Utilization Tracker
+
 A queue time predictor for Purdue Anvil.
 
 Load desired conda environment
