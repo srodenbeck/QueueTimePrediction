@@ -7,11 +7,28 @@ import config
 
 register_adapter(np.int64, AsIs)
 
-def strip_post(node_str):
-    if 'G' in node_str:
-        return int(float(node_str[:-1]))
+
+def memory_to_gigabytes(memory_str):
+    if memory_str.endswith('T'):
+        return float(memory_str[:-1]) * 1024
+    elif memory_str.endswith('G'):
+        return float(memory_str[:-1])
+    elif memory_str.endswith('M'):
+        return float(memory_str[:-1]) / 1024
+    elif memory_str == "0":
+        return float(0)
     else:
-        return int(float(node_str))
+        raise ValueError(f"Unknown memory unit in {memory_str}")
+
+def time_to_seconds(time_str):
+    if '-' in time_str:
+        d_hms = time_str.split('-')
+        days = int(d_hms[0])
+        h, m, s = map(int, d_hms[1].split(':'))
+    else:
+        days = 0
+        h, m, s = map(int, time_str.split(':'))
+    return days * 86400 + h * 3600 + m * 60 + s
 
 def sqlalc(df, db_config):
     engine = sqlalchemy.create_engine(
@@ -19,34 +36,38 @@ def sqlalc(df, db_config):
     df.to_sql('jobs', engine, if_exists='append', index=False)
 
 def transform_df(df):
-    df = df[["JobID", "UID", "Account", "State", "Partition", "TimelimitRaw", "Submit", "Eligible", "PlannedCPURAW", "Start",
-             "End",
-             "Priority", "ReqCPUS", "ReqMem", "ReqNodes"]]
+    df = df[["JobID", "UID", "Account", "State", "Partition", "TimelimitRaw", "Submit", "Eligible", "Elapsed", "Planned", "Start",
+             "End", "Priority", "ReqCPUS", "ReqMem", "ReqNodes", "ReqTRES", "QOS"]]
 
     df = df.rename(columns={"JobID": "job_id", "UID": "user_id", "Account": "account", "State": "state",
                             "Partition": "partition",
                             "TimelimitRaw": "time_limit_raw", "Submit": "submit",
-                            "Eligible": "eligible", "PlannedCPURAW": "planned_cpu_raw", "Start": "start_time", "End": "end_time",
+                            "Eligible": "eligible", "Elapsed": "elapsed", "Planned": "planned", "Start": "start_time", "End": "end_time",
                             "Priority": "priority", "ReqCPUS": "req_cpus",
-                            "ReqMem": "req_mem", "ReqNodes": "req_nodes"})
+                            "ReqMem": "req_mem", "ReqNodes": "req_nodes", "ReqTRES": "req_tres", "QOS": "qos"})
+    # Remove incomplete jobs.
+
+    df.loc[df.planned == "INVALID", "planned"] = None
     df['job_id'] = pd.to_numeric(df['job_id'], errors='coerce')
-    df = df.dropna(subset=['job_id'])
     df['time_limit_raw'] = pd.to_numeric(df['time_limit_raw'], errors='coerce')
-    df = df.dropna(subset=['time_limit_raw'])
     df.loc[df.start_time == "Unknown", "start_time"] = None
     df.loc[df.end_time == "Unknown", "end_time"] = None
     df['state'] = df['state'].str.partition(' ')[0]
-
-    df['req_mem'] = df['req_mem'].str[:-1]
-    df['req_mem'] = pd.to_numeric(df['req_mem'], errors='coerce')
+    df = df.dropna(subset=['job_id'])
+    df = df.dropna(subset=['planned'])
+    df = df.dropna(subset=['elapsed'])
+    df = df.dropna(subset=['time_limit_raw'])
     df = df.dropna(subset=['req_mem'])
+    df = df.dropna(subset=['start_time'])
 
-    # TODO: Using --units=G appears to break req_nodes column
-    df['req_nodes'] = df['req_nodes'].apply(strip_post)
-
+    # Format fields.
+    df['req_mem'] = df['req_mem'].apply(memory_to_gigabytes)
+    df['planned'] = df['planned'].apply(time_to_seconds)
+    df['elapsed'] = df['elapsed'].apply(time_to_seconds)
     partition_enum = ['standard', 'shared', 'wholenode', 'wide', 'gpu', 'highmem', 'azure']
     df = df[df['partition'].isin(partition_enum)]
 
+    # Change Null values for pandas.NA
     df = df.fillna(pd.NA)
     return df
 
@@ -77,13 +98,16 @@ def create_table(conn):
                 time_limit_raw INTEGER,
                 submit TIMESTAMP,
                 eligible TIMESTAMP,
-                planned_cpu_raw VARCHAR(255),
+                elapsed INTEGER,
+                planned INTEGER,
                 start_time TIMESTAMP,
                 end_time TIMESTAMP,
                 priority INTEGER,
                 req_cpus INTEGER,
                 req_mem REAL,
-                req_nodes INTEGER
+                req_nodes INTEGER,
+                req_tres VARCHAR(255),
+                QOS VARCHAR(255)
                 )"""
     with conn.cursor() as cursor: cursor.execute(command)
 
@@ -96,7 +120,7 @@ def initialize_db(db_config):
 
 
 if __name__ == "__main__":
-    csv_path = "/home/austin/until_2024-05-01.csv"
+    csv_path = "/home/austin/until_2024-05-02.csv"
     db_config = {
         "dbname": "sacctdata",
         "user": "postgres",
