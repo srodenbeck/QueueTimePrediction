@@ -27,6 +27,11 @@
 - memory_running (REAL) - Amount of memory currently being used in Gb.
 
 ### Potential Features
+- count_ahead_user
+- work_ahead_user
+- count_ahead_project
+- work_ahead_project
+
 remaining_cpu_time = sum of (reqCPUS * (requested time - elapsed time)) for all currently running jobs
 	Can potentially include remaining cpu time for different factors, such as all currently running jobs with lower request size
 
