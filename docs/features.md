@@ -1,33 +1,39 @@
 ## List of features used for model
 #### TODO: Put in alphabetical order once finished
 
-- priority - Integer indicating slurm queue priority. Higher indicates job has greater precedence.
-- req_cpus
-- req_mem
-- req_mem
-- count_ahead
-- work_ahead
-- time_limit_raw
+## Target
+- planned/queue_time (INT) - Time job spent waiting between eligible to start. Saved in seconds.
 
-## Potential Features
-Occupied_nodes = num nodes currently being used
+## Features
+- partition (PARTITION_ENUM). Partition that job ran in. Options not in ENUM are deleted from table
+- time_limit_raw (INT) - Time limit for job in minutes
+- planned (INT) - start_time - eligible. Saved in seconds.
+- priority (INT) - Priority given to job by SLURM. Higher is given more precedence.
+- req_cpus (INT) - Number of CPUS requested for job.
+- req_mem (REAL) - Amount of memory requested in Gb.
+- req_nodes (INT) - Number of nodes requested.
+- req_tres (TEXT) - Text string represented requested resources.
+- qos (TEXT) - Quality of Service for job. 
+- jobs_ahead_queue (INT) - Number of other jobs ahead in queue. 
+- time_limit_ahead_queue (INT) - Summed time limit of jobs ahead in queue.
+- cpus_ahead_queue (INT) - Sum of CPUs requested by jobs ahead in queue.
+- nodes_ahead_queue (INT) - Sum of nodes requested by jobs ahead in queue.
+- memory_ahead_queue (REAL) - Sum of memory requested by jobs ahead in queue in Gb.
+- jobs_running (INT) - Number of jobs currently running.
+- cpus_running (INT) - Number of CPUs currently being used.
+- nodes_running (INT) - Number of nodes currently being used.
+- memory_running (REAL) - Amount of memory currently being used in Gb.
 
+### Potential Features
 remaining_cpu_time = sum of (reqCPUS * (requested time - elapsed time)) for all currently running jobs
 	Can potentially include remaining cpu time for different factors, such as all currently running jobs with lower request size
 
 Priority_position = rank of priority of requested job compared to other pending jobs (ex. highest priority would result in priority_position of 0, second highest would be 1, etc)
 
-N_jobs_running = number of currently running jobs on the system
-
-
 Queue_cpu_time = sum of (reqCPUS * (requested time - elapsed time)) for all jobs in queue
 	Can potentially filter to just be jobs with higher priority than given job
 
-Queue_req_nodes = sum of req_nodes for all jobs in queue
-
 Queue_node_wall = sum of (req_nodes * (requested time - elapsed time)) for all jobs in queue
-
-N_jobs_in_queue = number of jobs in queue
 
 N_jobs_ahead = number of jobs presently in the queue with a higher priority than the given job
 
