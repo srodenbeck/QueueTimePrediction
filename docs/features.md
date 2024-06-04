@@ -1,10 +1,11 @@
 ## List of features used for model
 #### TODO: Put in alphabetical order once finished
 
-## Target
+# Target
 - planned/queue_time (INT) - Time job spent waiting between eligible to start. Saved in seconds.
 
-## Features
+# Features
+#### Straight from sacct
 - partition (PARTITION_ENUM). Partition that job ran in. Options not in ENUM are deleted from table
 - time_limit_raw (INT) - Time limit for job in minutes
 - planned (INT) - start_time - eligible. Saved in seconds.
@@ -14,6 +15,7 @@
 - req_nodes (INT) - Number of nodes requested.
 - req_tres (TEXT) - Text string represented requested resources.
 - qos (TEXT) - Quality of Service for job. 
+#### Computation required
 - jobs_ahead_queue (INT) - Number of other jobs ahead in queue. 
 - time_limit_ahead_queue (INT) - Summed time limit of jobs ahead in queue.
 - cpus_ahead_queue (INT) - Sum of CPUs requested by jobs ahead in queue.
