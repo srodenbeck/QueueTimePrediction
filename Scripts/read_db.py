@@ -17,3 +17,9 @@ def read_to_df():
                 f'postgresql+psycopg2://{db_config["user"]}:{db_config["password"]}@{db_config["host"]}:{db_config["port"]}/{db_config["dbname"]}')
         df = pd.read_sql_query("SELECT * FROM jobs ORDER BY RANDOM() LIMIT 10000", engine)
         return df
+
+
+arr = df.to_numpy()
+end = time.time()
+print(arr)
+print(f"time = {end - start}")
