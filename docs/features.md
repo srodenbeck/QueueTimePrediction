@@ -8,12 +8,10 @@
 #### Straight from sacct
 - partition (PARTITION_ENUM). Partition that job ran in. Options not in ENUM are deleted from table
 - time_limit_raw (INT) - Time limit for job in minutes
-- planned (INT) - start_time - eligible. Saved in seconds.
 - priority (INT) - Priority given to job by SLURM. Higher is given more precedence.
 - req_cpus (INT) - Number of CPUS requested for job.
 - req_mem (REAL) - Amount of memory requested in Gb.
 - req_nodes (INT) - Number of nodes requested.
-- req_tres (TEXT) - Text string represented requested resources.
 - qos (TEXT) - Quality of Service for job. 
 #### Computation required
 - jobs_ahead_queue (INT) - Number of other jobs ahead in queue. 
@@ -21,10 +19,11 @@
 - cpus_ahead_queue (INT) - Sum of CPUs requested by jobs ahead in queue.
 - nodes_ahead_queue (INT) - Sum of nodes requested by jobs ahead in queue.
 - memory_ahead_queue (REAL) - Sum of memory requested by jobs ahead in queue in Gb.
-- jobs_running (INT) - Number of jobs currently running.
-- cpus_running (INT) - Number of CPUs currently being used.
-- nodes_running (INT) - Number of nodes currently being used.
-- memory_running (REAL) - Amount of memory currently being used in Gb.
+- jobs_running (INT) - Number of jobs currently running at eligible time.
+  - NUM_JOBS WHERE START_TIME <= ELIGIBLE AND END_TIME >= ELIGIBLE 
+- cpus_running (INT) - Number of CPUs currently being used at eligible time.
+- nodes_running (INT) - Number of nodes currently being used at eligible time.
+- memory_running (REAL) - Amount of memory currently being used at eligible time in Gb.
 
 ### Potential Features
 - count_ahead_user
