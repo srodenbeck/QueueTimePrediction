@@ -8,8 +8,10 @@ class nn_model(nn.Module):
         self.layers = nn.Sequential(
             nn.Linear(input_dim, 16),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(16, 16),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(16, 1)
         )
 
