@@ -3,7 +3,7 @@ import psycopg2
 import pandas as pd
 import sqlalchemy
 from psycopg2.extensions import register_adapter, AsIs
-import config
+import config_file
 
 register_adapter(np.int64, AsIs)
 
@@ -33,7 +33,7 @@ def time_to_seconds(time_str):
 def sqlalc(df, db_config):
     engine = sqlalchemy.create_engine(
         f'postgresql+psycopg2://{db_config["user"]}:{db_config["password"]}@{db_config["host"]}:{db_config["port"]}/{db_config["dbname"]}')
-    df.to_sql('jobs', engine, if_exists='append', index=False)
+    df.to_sql('jobs_2021_2025_05_02', engine, if_exists='append', index=False)
 
 def transform_df(df):
     df = df[["JobID", "UID", "Account", "State", "Partition", "TimelimitRaw", "Submit", "Eligible", "Elapsed", "Planned", "Start",
@@ -85,11 +85,11 @@ def create_enum(conn):
     with conn.cursor() as cursor: cursor.execute(command)
 
 def create_table(conn):
-    command = """DROP TABLE IF EXISTS jobs"""
+    command = """DROP TABLE IF EXISTS jobs_2021_2025_05_02"""
     with conn.cursor() as cursor: cursor.execute(command)
 
     command = """
-                CREATE TABLE IF NOT EXISTS jobs (
+                CREATE TABLE IF NOT EXISTS jobs_2021_2025_05_02 (
                 job_id INTEGER PRIMARY KEY,
                 user_id INTEGER,
                 account VARCHAR(255),
@@ -107,7 +107,17 @@ def create_table(conn):
                 req_mem REAL,
                 req_nodes INTEGER,
                 req_tres VARCHAR(255),
-                QOS VARCHAR(255)
+                QOS VARCHAR(255),
+                jobs_ahead_queue INTEGER,
+                cpus_ahead_queue INTEGER,
+                memory_ahead_queue REAL,
+                nodes_ahead_queue INTEGER,
+                time_limit_ahead_queue INTEGER,
+                jobs_running INTEGER,
+                cpus_running INTEGER,
+                memory_running REAL,
+                nodes_running INTEGER,
+                time_limit_running INTEGER
                 )"""
     with conn.cursor() as cursor: cursor.execute(command)
 
@@ -124,7 +134,7 @@ if __name__ == "__main__":
     db_config = {
         "dbname": "sacctdata",
         "user": "postgres",
-        "password": config.postgres_password,
+        "password": config_file.postgres_password,
         "host": "slurm-data-loadbalancer.reu-p4.anvilcloud.rcac.purdue.edu",
         "port": "5432"
     }
