@@ -17,6 +17,10 @@ flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('learning_rate', 0.001, 'Learning rate.')
 flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_integer('num_epochs', 100, 'Number of Epochs')
+flags.DEFINE_enum('loss', 'mse_loss', ['l1_loss', 'mse_loss'], 'Loss function')
+flags.DEFINE_enum('optimizer', 'sgd', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
+
+
 FLAGS = flags.FLAGS
 
 def get_planned_target_index(df):
@@ -70,8 +74,17 @@ def main(argv):
     model = nn_model(num_features)
 
     # loss function and optimizer
-    loss_fn = nn.MSELoss()  # mean square error
-    optimizer = optim.Adam(params=model.parameters(), lr=FLAGS.learning_rate)
+    if FLAGS.loss == "l1_loss":
+        loss_fn = nn.L1Loss
+    elif FLAGS.loss == "mse_loss":
+        loss_fn = nn.MSELoss()
+
+    if FLAGS.optimizer == "adam":
+        optimizer = optim.Adam(params=model.parameters(), lr=FLAGS.learning_rate)
+    elif FLAGS.optimizer == "sgd":
+        optimizer = optim.SGD(params=model.parameters(), lr=FLAGS.learning_rate)
+    elif FLAGS.optimizer == "adamw":
+        optimizer = optim.AdamW(params=model.parameters(), lr=FLAGS.learning_rate)
 
     train_loss_by_epoch = []
     test_loss_by_epoch = []

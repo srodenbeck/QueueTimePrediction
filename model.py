@@ -7,9 +7,9 @@ class nn_model(nn.Module):
         super(nn_model, self).__init__()
         self.layers = nn.Sequential(
             nn.Linear(input_dim, 16),
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Linear(16, 16),
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Linear(16, 1)
         )
 
