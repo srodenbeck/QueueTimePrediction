@@ -74,7 +74,7 @@ x_var_names = ['Priority', 'ReqCPUS', 'QOSRAW', 'Partition', 'TimelimitRaw', 'Re
 target = 'PlannedRaw'
 
 # Path to where images will be stored
-path_root = "Graphs/TrendLines/"
+path_root = "graphs/TrendLines/"
 path_end = "_minute_plus.png"
 
 # y = df['PlannedRaw']
