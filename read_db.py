@@ -4,7 +4,7 @@ import sqlalchemy
 import time
 import config_file
 
-def read_to_df():
+def read_to_df(read_all=True, jobs=10000):
         db_config = {
                 "dbname": "sacctdata",
                 "user": "postgres",
@@ -15,11 +15,8 @@ def read_to_df():
 
         engine = sqlalchemy.create_engine(
                 f'postgresql+psycopg2://{db_config["user"]}:{db_config["password"]}@{db_config["host"]}:{db_config["port"]}/{db_config["dbname"]}')
-        df = pd.read_sql_query("SELECT * FROM jobs ORDER BY RANDOM() LIMIT 10000", engine)
+        if read_all:
+                df = pd.read_sql_query("SELECT * FROM jobs", engine)
+        else:
+                df = pd.read_sql_query(f"SELECT * FROM jobs ORDER BY submit DESC LIMIT {jobs}", engine)
         return df
-
-
-arr = df.to_numpy()
-end = time.time()
-print(arr)
-print(f"time = {end - start}")
