@@ -13,14 +13,14 @@
 - req_mem (REAL) - Amount of memory requested in Gb.
 - req_nodes (INT) - Number of nodes requested.
 - qos (TEXT) - Quality of Service for job. 
-#### Computation required
+#### Computation required (details in compute_features.py)
 - jobs_ahead_queue (INT) - Number of other jobs ahead in queue. 
 - time_limit_ahead_queue (INT) - Summed time limit of jobs ahead in queue.
 - cpus_ahead_queue (INT) - Sum of CPUs requested by jobs ahead in queue.
 - nodes_ahead_queue (INT) - Sum of nodes requested by jobs ahead in queue.
 - memory_ahead_queue (REAL) - Sum of memory requested by jobs ahead in queue in Gb.
 - jobs_running (INT) - Number of jobs currently running at eligible time.
-  - NUM_JOBS WHERE START_TIME <= ELIGIBLE AND END_TIME >= ELIGIBLE 
+- time_limit_running (INT) - Summed time limit of jobs currently running in seconds.
 - cpus_running (INT) - Number of CPUs currently being used at eligible time.
 - nodes_running (INT) - Number of nodes currently being used at eligible time.
 - memory_running (REAL) - Amount of memory currently being used at eligible time in Gb.

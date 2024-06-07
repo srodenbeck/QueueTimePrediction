@@ -1,65 +1,19 @@
 import numpy as np
 import pandas as pd
 import sqlalchemy
-import time
-import config_file
 from tqdm import tqdm
-from intervaltree import IntervalTree, Interval
+from intervaltree import IntervalTree
 
-def create_engine():
-    """
-    create_engine()
-    
-    Connects a sqlalchemy engine to a postgres database
-
-    Returns
-    -------
-    engine : SQLALCHEMY ENGINE
-        Returns an instance of a sqlalchemy engine to access postgres database.
-
-    """
-    db_config = {
-        "dbname": "sacctdata",
-        "user": "postgres",
-        "password": config_file.postgres_password,
-        "host": "slurm-data-loadbalancer.reu-p4.anvilcloud.rcac.purdue.edu",
-        "port": "5432"
-    }
-
-    engine = sqlalchemy.create_engine(
-        f'postgresql+psycopg2://{db_config["user"]}:{db_config["password"]}@{db_config["host"]}:{db_config["port"]}/{db_config["dbname"]}')
-    return engine
-
-def read_to_np(engine):
-    """
-    read_to_np()
-    
-    Reads in data from the table jobs to a dataframe and converts
-    it to a numpy array.
-
-    Parameters
-    ----------
-    engine : SQLALCHEMY ENGINE
-        Instance of sqlalchemy engine to access postgres database.
-
-    Returns
-    -------
-    np_array : NUMPY ARRAY
-        Returns an array containing the data from the jobs table
-        in postgres database.
-
-    """
-    df = pd.read_sql_query("SELECT * FROM jobs ORDER BY RANDOM() LIMIT 1000", engine)
-    np_array = df.to_numpy()
-    return np_array
+import config_file
+import read_db
 
 def calculate_running_features(engine):
     """
     calculate_running_features()
-    
-    Calculates features relating to jobs currently running when another job is 
+
+    Calculates features relating to jobs currently running when another job is
     made eligible. Features include number of jobs running, the total number of
-    cpus in use by running jobs, the total amount of memory being used by 
+    cpus in use by running jobs, the total amount of memory being used by
     running jobs, the total amount of nodes being used by running jobs, and the
     combined timelimit for all running jobs.
 
@@ -106,7 +60,7 @@ def calculate_running_features(engine):
     tree_overlap = 10000
 
 
-    # Creation of interval trees
+    # Creation of overlapping interval trees
     count = 0
     tree_idx = 0
     trees = []
@@ -157,10 +111,10 @@ def calculate_running_features(engine):
 def calculate_queue_features(engine):
     """
     calculate_queue_features()
-    
+
     alculates features relating to jobs currently in the queue when another job
     is made eligible. Features include number of jobs queued, the total number of
-    cpus in use by queued jobs, the total amount of memory being used by 
+    cpus in use by queued jobs, the total amount of memory being used by
     queued jobs, the total amount of nodes being used by queued jobs, and the
     combined timelimit for all queued jobs.
 
@@ -176,8 +130,9 @@ def calculate_queue_features(engine):
     """
     # Read in dataframe
     all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
+    all_df = pd.read_sql_query("SELECT * FROM new_jobs_odd ORDER BY eligible", engine)
     df = pd.read_sql_query(
-        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_2021_2025_05_02 ORDER BY eligible",
+        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM new_jobs_odd ORDER BY eligible",
         engine)
     df['start_time'] = df['start_time'].apply(lambda x: x.timestamp()).astype('int64')
     df['end_time'] = df['end_time'].apply(lambda x: x.timestamp()).astype('int64')
@@ -224,11 +179,12 @@ def calculate_queue_features(engine):
             count = 0
 
     # Loop through jobs and add in data for all jobs whose trees overlap
+    tree_idx = 0
     for job in tqdm(range(np_array.shape[0])):
         count += 1
         queue_features[job, 0] = np_array[job, idx_dict["JOB_ID"]]
         for overlapping in trees[tree_idx][np_array[job, idx_dict["ELIGIBLE"]]]:
-            if overlapping[1] < np_array[job, idx_dict["START_TIME"]] and overlapping[2] != np_array[job, idx_dict["JOB_ID"]]:
+            if overlapping[2] != np_array[job, idx_dict["JOB_ID"]]:
                 jobs_running_idx = overlapping[2]
                 queue_features[job, 1] += 1
                 queue_features[job, 2] += np_array[jobs_running_idx, idx_dict["REQ_CPUS"]].astype(np.uint32)
@@ -246,11 +202,11 @@ def calculate_queue_features(engine):
          "memory_ahead_queue": queue_features[:, 3], "nodes_ahead_queue": queue_features[:, 4].astype(np.uint32),
          "time_limit_ahead_queue": queue_features[:, 5].astype(np.uint32)})
     all_df.update(new_df)
-    all_df.to_sql('new_jobs', engine, if_exists='replace', index=False)
+    all_df.to_sql('new_jobs_all', engine, if_exists='replace', index=False)
 
 
 
 if __name__ == '__main__':
-    engine = create_engine()
-    calculate_running_features(engine)
-    # calculate_queue_features(engine)
+    engine = read_db.create_engine()
+    # calculate_running_features(engine)
+    calculate_queue_features(engine)

@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 import numpy as np
 import sys
+
 import read_db
 from model import nn_model
 
@@ -70,11 +71,12 @@ def main(argv):
     feature_names = ["time_limit_raw", "priority", "req_cpus", "req_mem", "req_nodes"]
     num_features = len(feature_names)
 
-    df = read_db.read_to_df(read_all=False, jobs=10000)
+    df = read_db.read_to_df(table="jobs", read_all=False, jobs=10000)
     np_array = df.to_numpy()
+
+    # Read in desired features and target columns to numpy arrays
     feature_indices = get_feature_indices(df, feature_names)
     target_index = get_planned_target_index(df)
-
     X, y = np_array[:, feature_indices], np_array[:, target_index]
     X = X.astype(np.float32)
     y = y.astype(np.float32)
@@ -84,7 +86,7 @@ def main(argv):
 
     model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2)
 
-    # loss function and optimizer
+    # loss function
     if FLAGS.loss == "l1_loss":
         loss_fn = nn.L1Loss
     elif FLAGS.loss == "mse_loss":
@@ -94,7 +96,7 @@ def main(argv):
     else:
         sys.exit(f"Loss function '{FLAGS.loss}' not supported")
 
-
+    # Optimizer
     if FLAGS.optimizer == "adam":
         optimizer = optim.Adam(params=model.parameters(), lr=FLAGS.lr)
     elif FLAGS.optimizer == "sgd":
@@ -104,9 +106,9 @@ def main(argv):
     else:
         sys.exit(f"Optimizer '{FLAGS.optimizer}' not supported")
 
+    # Run training loop
     train_loss_by_epoch = []
     test_loss_by_epoch = []
-
     for epoch in range(FLAGS.epochs):
         train_loss = []
         test_loss = []

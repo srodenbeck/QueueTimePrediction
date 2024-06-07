@@ -3,32 +3,11 @@ import psycopg2
 import pandas as pd
 import sqlalchemy
 from psycopg2.extensions import register_adapter, AsIs
+
 import config_file
+from transformations import memory_to_gigabytes, time_to_seconds
 
 register_adapter(np.int64, AsIs)
-
-
-def memory_to_gigabytes(memory_str):
-    if memory_str.endswith('T'):
-        return float(memory_str[:-1]) * 1024
-    elif memory_str.endswith('G'):
-        return float(memory_str[:-1])
-    elif memory_str.endswith('M'):
-        return float(memory_str[:-1]) / 1024
-    elif memory_str == "0":
-        return float(0)
-    else:
-        raise ValueError(f"Unknown memory unit in {memory_str}")
-
-def time_to_seconds(time_str):
-    if '-' in time_str:
-        d_hms = time_str.split('-')
-        days = int(d_hms[0])
-        h, m, s = map(int, d_hms[1].split(':'))
-    else:
-        days = 0
-        h, m, s = map(int, time_str.split(':'))
-    return days * 86400 + h * 3600 + m * 60 + s
 
 def sqlalc(df, db_config):
     engine = sqlalchemy.create_engine(
@@ -45,8 +24,8 @@ def transform_df(df):
                             "Eligible": "eligible", "Elapsed": "elapsed", "Planned": "planned", "Start": "start_time", "End": "end_time",
                             "Priority": "priority", "ReqCPUS": "req_cpus",
                             "ReqMem": "req_mem", "ReqNodes": "req_nodes", "ReqTRES": "req_tres", "QOS": "qos"})
-    # Remove incomplete jobs.
 
+    # Remove incomplete jobs.
     df.loc[df.planned == "INVALID", "planned"] = None
     df['job_id'] = pd.to_numeric(df['job_id'], errors='coerce')
     df['time_limit_raw'] = pd.to_numeric(df['time_limit_raw'], errors='coerce')
