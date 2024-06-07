@@ -7,6 +7,17 @@ from tqdm import tqdm
 from intervaltree import IntervalTree, Interval
 
 def create_engine():
+    """
+    create_engine()
+    
+    Connects a sqlalchemy engine to a postgres database
+
+    Returns
+    -------
+    engine : SQLALCHEMY ENGINE
+        Returns an instance of a sqlalchemy engine to access postgres database.
+
+    """
     db_config = {
         "dbname": "sacctdata",
         "user": "postgres",
@@ -20,11 +31,49 @@ def create_engine():
     return engine
 
 def read_to_np(engine):
-        df = pd.read_sql_query("SELECT * FROM jobs ORDER BY RANDOM() LIMIT 1000", engine)
-        np_array = df.to_numpy()
-        return np_array
+    """
+    read_to_np()
+    
+    Reads in data from the table jobs to a dataframe and converts
+    it to a numpy array.
+
+    Parameters
+    ----------
+    engine : SQLALCHEMY ENGINE
+        Instance of sqlalchemy engine to access postgres database.
+
+    Returns
+    -------
+    np_array : NUMPY ARRAY
+        Returns an array containing the data from the jobs table
+        in postgres database.
+
+    """
+    df = pd.read_sql_query("SELECT * FROM jobs ORDER BY RANDOM() LIMIT 1000", engine)
+    np_array = df.to_numpy()
+    return np_array
 
 def calculate_running_features(engine):
+    """
+    calculate_running_features()
+    
+    Calculates features relating to jobs currently running when another job is 
+    made eligible. Features include number of jobs running, the total number of
+    cpus in use by running jobs, the total amount of memory being used by 
+    running jobs, the total amount of nodes being used by running jobs, and the
+    combined timelimit for all running jobs.
+
+    Parameters
+    ----------
+    engine : SQLALCHEMY ENGINE
+        Instance of sqlalchemy engine to access postgres database.
+
+    Returns
+    -------
+    None.
+
+    """
+    # Read in dataframe
     all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
     df = pd.read_sql_query(
         "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_2021_2025_05_02 ORDER BY eligible",
@@ -56,12 +105,13 @@ def calculate_running_features(engine):
     tree_size = 100000
     tree_overlap = 10000
 
+
+    # Creation of interval trees
     count = 0
     tree_idx = 0
     trees = []
     for i in range(num_trees):
         trees.append(IntervalTree())
-
     for job_idx in tqdm(range(np_array.shape[0])):
         count += 1
         if np_array[job_idx, idx_dict["START_TIME"]] < np_array[job_idx, idx_dict["END_TIME"]]:
@@ -77,6 +127,7 @@ def calculate_running_features(engine):
             tree_idx += 1
             count = 0
 
+    # Loop through jobs and add in data for all jobs whose trees overlap
     tree_idx = 0
     for job in tqdm(range(np_array.shape[0])):
         count += 1
@@ -93,7 +144,7 @@ def calculate_running_features(engine):
             tree_idx += 1
             count = 0
 
-
+    # Update dataframe from results and upload to database
     new_df = pd.DataFrame(
         {"job_id": running_features[:, 0].astype(np.uint32), "jobs_running": running_features[:, 1].astype(np.uint32),
          "cpus_running": running_features[:, 2].astype(np.uint32),
@@ -104,6 +155,26 @@ def calculate_running_features(engine):
 
 
 def calculate_queue_features(engine):
+    """
+    calculate_queue_features()
+    
+    alculates features relating to jobs currently in the queue when another job
+    is made eligible. Features include number of jobs queued, the total number of
+    cpus in use by queued jobs, the total amount of memory being used by 
+    queued jobs, the total amount of nodes being used by queued jobs, and the
+    combined timelimit for all queued jobs.
+
+    Parameters
+    ----------
+    engine : SQLALCHEMY ENGINE
+        Instance of sqlalchemy engine to access postgres database.
+
+    Returns
+    -------
+    None.
+
+    """
+    # Read in dataframe
     all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
     df = pd.read_sql_query(
         "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_2021_2025_05_02 ORDER BY eligible",
@@ -131,12 +202,12 @@ def calculate_queue_features(engine):
     tree_size = 100000
     tree_overlap = 10000
 
+    # Creation of interval trees
     count = 0
     tree_idx = 0
     trees = []
     for i in range(num_trees):
         trees.append(IntervalTree())
-
     for job_idx in tqdm(range(np_array.shape[0])):
         count += 1
         if np_array[job_idx, idx_dict["ELIGIBLE"]] != np_array[job_idx, idx_dict["START_TIME"]]:
@@ -152,6 +223,7 @@ def calculate_queue_features(engine):
             tree_idx += 1
             count = 0
 
+    # Loop through jobs and add in data for all jobs whose trees overlap
     for job in tqdm(range(np_array.shape[0])):
         count += 1
         queue_features[job, 0] = np_array[job, idx_dict["JOB_ID"]]
@@ -167,6 +239,7 @@ def calculate_queue_features(engine):
             tree_idx += 1
             count = 0
 
+    # Update dataframe from results and upload to database
     new_df = pd.DataFrame(
         {"job_id": queue_features[:, 0].astype(np.uint32), "jobs_ahead_queue": queue_features[:, 1].astype(np.uint32),
          "cpus_ahead_queue": queue_features[:, 2].astype(np.uint32),
