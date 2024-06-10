@@ -191,14 +191,8 @@ def main(argv):
                 test_loss.append(loss.item())
                 calculate_custom_loss(pred.flatten(), y, "test")
                 if epoch == FLAGS.epochs - 1:
-                    ten_split_true = 0
-                    ten_split_total = 0
                     for i in range(y.shape[0]):
                         print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
-                        if (pred.flatten()[i] > 10 and y[i] > 10) or (pred.flatten()[i] < 10 and y[i] < 10):
-                            ten_split_true += 1
-                        ten_split_total += 1
-                    print(f"Accuracy above/below ten: {ten_split_true / ten_split_total}")
 
         print(f"Epoch = {epoch}, Train_loss = {np.mean(train_loss):.2f}, Test Loss = {np.mean(test_loss):.5f}")
         train_loss_by_epoch.append(np.mean(train_loss))
