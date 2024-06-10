@@ -3,6 +3,7 @@
 import sklearn.preprocessing as preprocessing
 import scipy.stats as stats
 from scipy.special import inv_boxcox
+from sklearn.preprocessing import MinMaxScaler
 
 
 def normalize(train_data, test_data):
@@ -136,6 +137,7 @@ def boxcox(train_data, test_data):
     test_data_transformed = stats.boxcox(test_data, lmbda=fit_lambda)
     return train_data_transformed, test_data_transformed, fit_lambda
 
+
 def inverse_boxcox(data, lmbda):
     """
     Wrapper for scipy.stats.inv_boxcox() function
@@ -157,4 +159,30 @@ def inverse_boxcox(data, lmbda):
 
     """
     return inv_boxcox(data, lmbda)
+
+
+def scale_min_max(X_train, X_test):
+    """
+    Applys a min max scaler to X_train and X_test fit to X_trian
+
+    Parameters
+    ----------
+    X_train : ARRAY TYPE
+        Array of floats.
+    X_test : ARRAY TYPE
+        Array of floats.
+
+    Returns
+    -------
+    X_train : ARRAY TYPE
+        Array of floats scaled between 0 and 1.
+    X_test : ARRAY TYPE
+        Array of floats roughly scaled between 0 and 1.
+
+    """
+    scaler = MinMaxScaler()
+    scaler.fit(X_train)
+    X_train = scaler.transform(X_train)
+    X_test = scaler.transform(X_test)
+    return X_train, X_test
     

@@ -11,6 +11,7 @@ from tqdm import tqdm
 import numpy as np
 import sys
 import neptune
+import transformations
 
 import config_file
 import read_db
@@ -43,6 +44,7 @@ custom_loss = {
 def get_planned_target_index(df):
     return df.columns.get_loc('planned')
 
+
 def get_feature_indices(df, feature_names):
     feature_indices = []
     for feature_name in feature_names:
@@ -55,8 +57,17 @@ def get_feature_indices(df, feature_names):
 
 
 def create_dataloaders(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8)
-    X_train, X_test = scale_min_max(X_train, X_test)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, 
+                                                        shuffle=False)
+    X_train, X_test = transformations.scale_min_max(X_train, X_test)
+    
+    # for i in range(X_train.shape[1]):
+        # print(X_train[:, i])
+        # print(min(X_train[:, i]))
+        # X_train[:, i] = np.log(X_train[:, i])
+    #     # X_train[:, i], X_test[:, i], lmbda = transformations.boxcox(X_train[:, i], 
+    #     #                                                             X_test[:, i])
+    #     # print(f"Lambda of {lmbda}")
 
     # First step: converting to tensor
     x_train_to_tensor = torch.from_numpy(X_train).to(torch.float32)
@@ -72,12 +83,6 @@ def create_dataloaders(X, y):
     test_dataloader = DataLoader(test_dataset, batch_size=FLAGS.batch_size)
     return train_dataloader, test_dataloader
 
-def scale_min_max(X_train, X_test):
-    scaler = MinMaxScaler()
-    scaler.fit(X_train)
-    X_train = scaler.transform(X_train)
-    X_test = scaler.transform(X_test)
-    return X_train, X_test
 
 def calculate_custom_loss(pred, y, train_or_test):
     sub_tensor = torch.sub(pred.flatten(), y)
@@ -132,9 +137,12 @@ def main(argv):
     X, y = np_array[:, feature_indices], np_array[:, target_index]
     X = X.astype(np.float32)
     y = y.astype(np.float32)
+    
+    # Transformations
     y = y / 60
 
     train_dataloader, test_dataloader = create_dataloaders(X, y)
+    
 
     model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout)
 
@@ -177,13 +185,24 @@ def main(argv):
 
             calculate_custom_loss(pred.flatten(), y, "train")
 
+
         for X, y in test_dataloader:
             with torch.no_grad():
                 pred = model(X)
                 loss = loss_fn(pred.flatten(), y)
+                
+                
+                
                 if epoch == FLAGS.epochs - 1:
+                    ten_split_true = 0 
+                    ten_split_total = 0
                     for i in range(y.shape[0]):
+                        if (pred.flatten()[i] > 10 and y[i] > 10) or (pred.flatten()[i] < 10 and y[i] < 10):
+                            ten_split_true += 1
+                        ten_split_total += 1 
+                        
                         print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
+                    print(f"Accuracy above/below ten: {ten_split_true / ten_split_total}")
                 test_loss.append(loss.item())
 
                 calculate_custom_loss(pred.flatten(), y, "test")
