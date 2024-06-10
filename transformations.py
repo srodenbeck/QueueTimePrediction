@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import sklearn.preprocessing as preprocessing
+import scipy.stats as stats
+from scipy.special import inv_boxcox
 
 
 def normalize(train_data, test_data):
@@ -106,3 +108,53 @@ def time_to_seconds(time_str):
         days = 0
         h, m, s = map(int, time_str.split(':'))
     return days * 86400 + h * 3600 + m * 60 + s
+
+
+def boxcox(train_data, test_data):
+    """
+    Fits a Box-Cox transformation to train_data and then applies it to 
+    train_data and test_data.
+
+    Parameters
+    ----------
+    train_data : ARRAY TYPE
+        Array of data which will serve to fit and be applied by the 
+        Box-Cox transformation.
+    test_data : ARRAY TYPE
+        Array of data which will have the Box-Cox transformation applied to
+        it with the lambda value resulting from train_data.
+
+    Returns
+    -------
+    train_data_transformed : ARRAY TYPE
+        Transformed version of train_data.
+    test_data_transformed : ARRAY TYPE
+        Transformed version of test_data.
+
+    """
+    train_data_transformed, fit_lambda = stats.boxcox(train_data)
+    test_data_transformed = stats.boxcox(test_data, lmbda=fit_lambda)
+    return train_data_transformed, test_data_transformed, fit_lambda
+
+def inverse_boxcox(data, lmbda):
+    """
+    Wrapper for scipy.stats.inv_boxcox() function
+
+    Parameters
+    ----------
+    data : ARRAY OR FLOAT TYPE
+        Number or set of numbers to be converted back to their pre-transformed
+        value.
+    lmbda : FLOAT
+        Float ranging from -5.0 to 5.0 as a result of applying the Box-Cox
+        transformation.
+
+    Returns
+    -------
+    ARRAY OR FLOAT TYPE
+        Positive number or set of numbers as a result of reversing the transformation
+        for the given lambda.
+
+    """
+    return inv_boxcox(data, lmbda)
+    
