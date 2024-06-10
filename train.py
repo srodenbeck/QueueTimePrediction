@@ -29,6 +29,17 @@ flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 
 FLAGS = flags.FLAGS
 
+custom_loss = {
+    "train_within_10min_correct":  0,
+    "train_within_10min_total":  0,
+    "test_within_10min_correct":  0,
+    "test_within_10min_total":  0,
+    "train_binary_10min_correct":  0,
+    "train_binary_10min_total":  0,
+    "test_binary_10min_correct":  0,
+    "test_binary_10min_total":  0
+}
+
 def get_planned_target_index(df):
     return df.columns.get_loc('planned')
 
@@ -68,8 +79,23 @@ def scale_min_max(X_train, X_test):
     X_test = scaler.transform(X_test)
     return X_train, X_test
 
+def calculate_custom_loss(pred, y, train_or_test):
+    sub_tensor = torch.sub(pred.flatten(), y)
+    binary_within = torch.where(torch.abs(sub_tensor) < 10, 1, 0)
+    pred[pred < 0] = 0
+    custom_loss[f"{train_or_test}_within_10min_total"] += binary_within.shape[0]
+    custom_loss[f"{train_or_test}_within_10min_correct"] += binary_within.sum().item()
+
+    y_binary = torch.where(y > 10, 1, 0)
+    pred_binary = torch.where(pred.flatten() > 10, 1, 0)
+    binary_10min = torch.where(y_binary == pred_binary, 1, 0)
+    custom_loss[f"{train_or_test}_binary_10min_total"] += binary_10min.shape[0]
+    custom_loss[f"{train_or_test}_binary_10min_correct"] += binary_10min.sum().item()
+
+
 
 def main(argv):
+    global custom_loss
     run = neptune.init_run(
         project="queue/trout",
         api_token=config_file.neptune_api_token,
@@ -135,16 +161,12 @@ def main(argv):
     # Run training loop
     train_loss_by_epoch = []
     test_loss_by_epoch = []
-    binary_10min_correct = 0
-    binary_10min_total = 0
 
     for epoch in range(FLAGS.epochs):
         train_loss = []
         test_loss = []
-        train_within_10min_correct = 0
-        train_within_10min_total = 0
-        test_within_10min_correct = 0
-        test_within_10min_total = 0
+        custom_loss = dict.fromkeys(custom_loss, 0)
+        print(custom_loss)
         for X, y in train_dataloader:
             pred = model(X)
             loss = loss_fn(pred.flatten(), y)
@@ -154,10 +176,7 @@ def main(argv):
 
             train_loss.append(loss.item())
 
-            sub_tensor = torch.sub(pred.flatten(), y)
-            binary_within = torch.where(torch.abs(sub_tensor) < 10, 1, 0)
-            train_within_10min_total += binary_within.shape[0]
-            train_within_10min_correct += binary_within.sum().item()
+            calculate_custom_loss(pred.flatten(), y, "train")
 
         for X, y in test_dataloader:
             with torch.no_grad():
@@ -168,18 +187,18 @@ def main(argv):
                         print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
                 test_loss.append(loss.item())
 
-                sub_tensor = torch.sub(pred.flatten(), y)
-                binary_within = torch.where(torch.abs(sub_tensor) < 5, 1, 0)
-                test_within_10min_total += binary_within.shape[0]
-                test_within_10min_correct += binary_within.sum().item()
+                calculate_custom_loss(pred.flatten(), y, "test")
 
         print(f"Epoch = {epoch}, Train_loss = {np.mean(train_loss):.2f}, Test Loss = {np.mean(test_loss):.5f}")
         train_loss_by_epoch.append(np.mean(train_loss))
         test_loss_by_epoch.append(np.mean(test_loss))
         run["train/loss"].append(np.mean(train_loss))
         run["valid/loss"].append(np.mean(test_loss))
-        run["train/within_5min_acc"].append(train_within_10min_correct / train_within_10min_total)
-        run["test/within_5min_acc"].append(test_within_10min_correct / test_within_10min_total)
+        run["train/within_10min_acc"].append(custom_loss["train_within_10min_correct"] / custom_loss["train_within_10min_total"])
+        run["valid/within_10min_acc"].append(custom_loss["test_within_10min_correct"] / custom_loss["test_within_10min_total"])
+        run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"])
+        run["valid/binary_10min_acc"].append(custom_loss["test_binary_10min_correct"] / custom_loss["test_binary_10min_total"])
+
 
     run.stop()
 
