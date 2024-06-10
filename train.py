@@ -165,7 +165,7 @@ def main(argv):
     for epoch in range(FLAGS.epochs):
         train_loss = []
         test_loss = []
-        print(custom_loss)
+        custom_loss = dict.fromkeys(custom_loss, 0)
         for X, y in train_dataloader:
             pred = model(X)
             loss = loss_fn(pred.flatten(), y)
@@ -193,10 +193,10 @@ def main(argv):
         test_loss_by_epoch.append(np.mean(test_loss))
         run["train/loss"].append(np.mean(train_loss))
         run["valid/loss"].append(np.mean(test_loss))
-        run["train/within_10min_acc"].append(custom_loss["train_within_10min_correct"] / custom_loss["train_within_10min_total"])
-        run["valid/within_10min_acc"].append(custom_loss["test_within_10min_correct"] / custom_loss["test_within_10min_total"])
-        run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"])
-        run["valid/binary_10min_acc"].append(custom_loss["test_binary_10min_correct"] / custom_loss["test_binary_10min_total"])
+        run["train/within_10min_acc"].append(custom_loss["train_within_10min_correct"] / custom_loss["train_within_10min_total"] * 100)
+        run["valid/within_10min_acc"].append(custom_loss["test_within_10min_correct"] / custom_loss["test_within_10min_total"] * 100)
+        run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"] * 100)
+        run["valid/binary_10min_acc"].append(custom_loss["test_binary_10min_correct"] / custom_loss["test_binary_10min_total"] * 100)
 
 
     run.stop()
