@@ -12,6 +12,7 @@ import numpy as np
 import sys
 import neptune
 import transformations
+import smogn
 
 import config_file
 import read_db
@@ -27,6 +28,7 @@ flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algo
 flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
 flags.DEFINE_integer('hl2', 16, 'Hidden layer 1 dim')
 flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
+flags.DEFINE_boolean('transform', False,'Use transformations on features')
 
 FLAGS = flags.FLAGS
 
@@ -57,15 +59,16 @@ def get_feature_indices(df, feature_names):
 
 
 def create_dataloaders(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, 
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
                                                         shuffle=False)
-    X_train, X_test = transformations.scale_min_max(X_train, X_test)
-    
+    if FLAGS.transform:
+        X_train, X_test = transformations.scale_min_max(X_train, X_test)
+
     # for i in range(X_train.shape[1]):
         # print(X_train[:, i])
         # print(min(X_train[:, i]))
         # X_train[:, i] = np.log(X_train[:, i])
-    #     # X_train[:, i], X_test[:, i], lmbda = transformations.boxcox(X_train[:, i], 
+    #     # X_train[:, i], X_test[:, i], lmbda = transformations.boxcox(X_train[:, i],
     #     #                                                             X_test[:, i])
     #     # print(f"Lambda of {lmbda}")
 
@@ -106,9 +109,10 @@ def main(argv):
         api_token=config_file.neptune_api_token,
     )
 
-    feature_names = ["time_limit_raw", "priority", "req_cpus", "req_mem", "req_nodes"]
+    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_nodes", "req_mem", "jobs_ahead_queue", "jobs_running"]
     num_features = len(feature_names)
     num_jobs = 10000
+    read_all = True if num_jobs == 0 else False
 
     params = {
         'feature_names': str(feature_names),
@@ -125,10 +129,8 @@ def main(argv):
     }
     run["parameters"] = params
 
-    feature_names = ["time_limit_raw", "priority", "req_cpus", "req_mem", "req_nodes"]
     num_features = len(feature_names)
-
-    df = read_db.read_to_df(table="jobs", read_all=False, jobs=num_jobs)
+    df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
     np_array = df.to_numpy()
 
     # Read in desired features and target columns to numpy arrays
@@ -137,12 +139,11 @@ def main(argv):
     X, y = np_array[:, feature_indices], np_array[:, target_index]
     X = X.astype(np.float32)
     y = y.astype(np.float32)
-    
+
     # Transformations
     y = y / 60
 
     train_dataloader, test_dataloader = create_dataloaders(X, y)
-    
 
     model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout)
 
@@ -180,32 +181,24 @@ def main(argv):
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-
             train_loss.append(loss.item())
-
             calculate_custom_loss(pred.flatten(), y, "train")
-
 
         for X, y in test_dataloader:
             with torch.no_grad():
                 pred = model(X)
                 loss = loss_fn(pred.flatten(), y)
-                
-                
-                
+                test_loss.append(loss.item())
+                calculate_custom_loss(pred.flatten(), y, "test")
                 if epoch == FLAGS.epochs - 1:
-                    ten_split_true = 0 
+                    ten_split_true = 0
                     ten_split_total = 0
                     for i in range(y.shape[0]):
+                        print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
                         if (pred.flatten()[i] > 10 and y[i] > 10) or (pred.flatten()[i] < 10 and y[i] < 10):
                             ten_split_true += 1
-                        ten_split_total += 1 
-                        
-                        print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
+                        ten_split_total += 1
                     print(f"Accuracy above/below ten: {ten_split_true / ten_split_total}")
-                test_loss.append(loss.item())
-
-                calculate_custom_loss(pred.flatten(), y, "test")
 
         print(f"Epoch = {epoch}, Train_loss = {np.mean(train_loss):.2f}, Test Loss = {np.mean(test_loss):.5f}")
         train_loss_by_epoch.append(np.mean(train_loss))
@@ -217,13 +210,7 @@ def main(argv):
         run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"] * 100)
         run["valid/binary_10min_acc"].append(custom_loss["test_binary_10min_correct"] / custom_loss["test_binary_10min_total"] * 100)
 
-
     run.stop()
-
-    plt.plot(train_loss_by_epoch)
-    plt.plot(test_loss_by_epoch)
-    plt.legend(['Train_loss', 'Test loss'])
-    plt.show()
 
 if __name__ == '__main__':
     app.run(main)
