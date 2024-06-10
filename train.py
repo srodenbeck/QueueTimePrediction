@@ -165,7 +165,6 @@ def main(argv):
     for epoch in range(FLAGS.epochs):
         train_loss = []
         test_loss = []
-        custom_loss = dict.fromkeys(custom_loss, 0)
         print(custom_loss)
         for X, y in train_dataloader:
             pred = model(X)
