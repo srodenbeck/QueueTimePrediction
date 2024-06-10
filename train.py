@@ -29,6 +29,7 @@ flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
 flags.DEFINE_integer('hl2', 16, 'Hidden layer 1 dim')
 flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 flags.DEFINE_boolean('transform', False,'Use transformations on features')
+flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
 
 FLAGS = flags.FLAGS
 
@@ -60,7 +61,7 @@ def get_feature_indices(df, feature_names):
 
 def create_dataloaders(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
-                                                        shuffle=False)
+                                                        shuffle=FLAGS.shuffle)
     if FLAGS.transform:
         X_train, X_test = transformations.scale_min_max(X_train, X_test)
 
@@ -111,7 +112,7 @@ def main(argv):
 
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_nodes", "req_mem", "jobs_ahead_queue", "jobs_running"]
     num_features = len(feature_names)
-    num_jobs = 10000
+    num_jobs = 100000
     read_all = True if num_jobs == 0 else False
 
     params = {
