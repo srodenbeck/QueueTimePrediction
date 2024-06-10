@@ -10,7 +10,9 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 import numpy as np
 import sys
+import neptune
 
+import config_file
 import read_db
 from model import nn_model
 
@@ -19,11 +21,11 @@ flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.01, 'Learning rate.')
 flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_integer('epochs', 100, 'Number of Epochs')
-flags.DEFINE_enum('loss', 'mse_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
+flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
 flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
 flags.DEFINE_integer('hl2', 16, 'Hidden layer 1 dim')
-
+flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 
 FLAGS = flags.FLAGS
 
@@ -68,10 +70,34 @@ def scale_min_max(X_train, X_test):
 
 
 def main(argv):
+    run = neptune.init_run(
+        project="queue/trout",
+        api_token=config_file.neptune_api_token,
+    )
+
+    feature_names = ["time_limit_raw", "priority", "req_cpus", "req_mem", "req_nodes"]
+    num_features = len(feature_names)
+    num_jobs = 10000
+
+    params = {
+        'feature_names': str(feature_names),
+        'num_features': num_features,
+        'num_jobs': num_jobs,
+        'lr': FLAGS.lr,
+        'batch_size': FLAGS.batch_size,
+        'epochs': FLAGS.epochs,
+        'loss_fn': FLAGS.loss,
+        'optimizer': FLAGS.optimizer,
+        'hl1': FLAGS.hl1,
+        'hl2': FLAGS.hl2,
+        'dropout': FLAGS.dropout
+    }
+    run["parameters"] = params
+
     feature_names = ["time_limit_raw", "priority", "req_cpus", "req_mem", "req_nodes"]
     num_features = len(feature_names)
 
-    df = read_db.read_to_df(table="jobs", read_all=False, jobs=10000)
+    df = read_db.read_to_df(table="jobs", read_all=False, jobs=num_jobs)
     np_array = df.to_numpy()
 
     # Read in desired features and target columns to numpy arrays
@@ -84,7 +110,7 @@ def main(argv):
 
     train_dataloader, test_dataloader = create_dataloaders(X, y)
 
-    model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2)
+    model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout)
 
     # loss function
     if FLAGS.loss == "l1_loss":
@@ -109,9 +135,16 @@ def main(argv):
     # Run training loop
     train_loss_by_epoch = []
     test_loss_by_epoch = []
+    binary_10min_correct = 0
+    binary_10min_total = 0
+
     for epoch in range(FLAGS.epochs):
         train_loss = []
         test_loss = []
+        train_within_10min_correct = 0
+        train_within_10min_total = 0
+        test_within_10min_correct = 0
+        test_within_10min_total = 0
         for X, y in train_dataloader:
             pred = model(X)
             loss = loss_fn(pred.flatten(), y)
@@ -120,6 +153,11 @@ def main(argv):
             optimizer.zero_grad()
 
             train_loss.append(loss.item())
+
+            sub_tensor = torch.sub(pred.flatten(), y)
+            binary_within = torch.where(torch.abs(sub_tensor) < 10, 1, 0)
+            train_within_10min_total += binary_within.shape[0]
+            train_within_10min_correct += binary_within.sum().item()
 
         for X, y in test_dataloader:
             with torch.no_grad():
@@ -130,9 +168,20 @@ def main(argv):
                         print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
                 test_loss.append(loss.item())
 
+                sub_tensor = torch.sub(pred.flatten(), y)
+                binary_within = torch.where(torch.abs(sub_tensor) < 5, 1, 0)
+                test_within_10min_total += binary_within.shape[0]
+                test_within_10min_correct += binary_within.sum().item()
+
         print(f"Epoch = {epoch}, Train_loss = {np.mean(train_loss):.2f}, Test Loss = {np.mean(test_loss):.5f}")
         train_loss_by_epoch.append(np.mean(train_loss))
         test_loss_by_epoch.append(np.mean(test_loss))
+        run["train/loss"].append(np.mean(train_loss))
+        run["valid/loss"].append(np.mean(test_loss))
+        run["train/within_5min_acc"].append(train_within_10min_correct / train_within_10min_total)
+        run["test/within_5min_acc"].append(test_within_10min_correct / test_within_10min_total)
+
+    run.stop()
 
     plt.plot(train_loss_by_epoch)
     plt.plot(test_loss_by_epoch)

@@ -129,7 +129,6 @@ def calculate_queue_features(engine):
 
     """
     # Read in dataframe
-    all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
     all_df = pd.read_sql_query("SELECT * FROM new_jobs_odd ORDER BY eligible", engine)
     df = pd.read_sql_query(
         "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM new_jobs_odd ORDER BY eligible",

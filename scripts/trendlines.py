@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy
 
+import read_db
+
 np.random.seed(0)
 
 def time_to_seconds(time_str):
@@ -47,7 +49,7 @@ partition_dict = {
 }
 
 # Read file
-df = pd.read_csv("all_data.csv", delimiter="|")
+df = read_db.read_to_df()
 # Potentially remove
 df = df[df['State'] == 'COMPLETED']
 
@@ -94,8 +96,8 @@ for name in x_var_names:
     # Index can be adjusted to only graph first X% of data
     # index = int(0.99 * len(df))
     index = len(df)
-    X = df[name].iloc[:index]
-    y = df['PlannedRaw'].iloc[:index]
+    X = np.log(df[name].iloc[:index])
+    y = np.log(df['PlannedRaw'].iloc[:index])
 
     plt.scatter(X, y)
     plt.xlabel(name)
@@ -106,7 +108,7 @@ for name in x_var_names:
     ax.text(0.1, 0.9, f"R2 value: {r_value * r_value}", transform=ax.transAxes)
     # plt.annotate("r-squared = {:.3f}".format(r_value), (0,1))
     # plt.annotate("p-value = {:.5f}".format(p_value), (0,0.9))
-    plt.savefig(path_root + name + path_end)
+    # plt.savefig(path_root + name + path_end)
     plt.show()
     
 
