@@ -114,6 +114,80 @@ ggplot(data, aes(x = value, fill = group)) +
   xlim(0, 17) + 
   ylim(0, 0.6)
 
+
+
+
+# maria_result, psql_result
+colnames(psql_result)
+colnames(maria_result)
+# investigate processesors and requested_queue_time (timelimit_raw)
+
+# Requested wall time
+# Note: walltime for postgres is in minutes, walltime for maria is in seconds
+mean(maria_result$requestedWallTime)
+
+# make sure both are same datatype and in minutes
+psql_walltime_minutes <- as.double(psql_result$time_limit_raw)
+maria_walltime_minutes <- maria_result$requestedWallTime / 60
+
+# collect data
+wall_avg_psql <- mean(psql_result$logWalltime)
+wall_avg_maria <- mean(maria_result$logWalltime)
+wall_sd_psql <- sd(psql_result$logWalltime)
+wall_sd_maria <- sd(maria_result$logWalltime)
+wall_n_psql <- length(psql_result$logWalltime)
+wall_n_maria <- length(maria_result$logWalltime)
+
+data <- data.frame(
+  value = c(psql_result$logWalltime, maria_result$logWalltime),
+  group = factor(rep(c("PSQL Requested Walltime", "Maria Requested Walltime"), 
+                     times = c(length(psql_walltime_minutes), length(maria_walltime_minutes))))
+)
+
+maria_result$logWalltime <- log(maria_walltime_minutes + 1)
+psql_result$logWalltime <- log(psql_walltime_minutes + 1)
+
+ggplot(maria_result, aes(x = logWalltime)) +
+  geom_histogram(aes(y = after_stat(density)), bins = n_bins, fill = "grey", col = "black") + 
+  geom_density(col = "red", lwd = 1) + 
+  stat_function(fun = dnorm, args = list(mean = wall_avg_maria, sd = wall_sd_maria), col="blue", lwd = 1) + 
+  ggtitle("Histogram of Log Transformed Requested Walltime Maria") +
+  ylim(0, 0.6) +
+  xlim(0, 12)
+
+ggplot(psql_result, aes(x = logWalltime)) +
+  geom_histogram(aes(y = after_stat(density)), bins = n_bins, fill = "grey", col = "black") + 
+  geom_density(col = "red", lwd = 1) + 
+  stat_function(fun = dnorm, args = list(mean = wall_avg_psql, sd = wall_sd_psql), col="blue", lwd = 1) + 
+  ggtitle("Histogram of Requested Walltime Postgres") + 
+  ylim(0, 0.6) +
+  xlim(0, 12)
+
+ggplot(data, aes(x = value, fill = group)) +
+  geom_histogram(aes(y = ..density..), position = "identity", alpha = 0.5, binwidth = 0.5) +
+  labs(title = "Overlapping Histograms of Database Histograms",
+       x = "logWalltime",
+       y = "Density") +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme_minimal() +
+  theme(panel.background = element_rect(fill = "#F5F5F5")) +
+  xlim(0, 12) + 
+  ylim(0, 0.6)
+
+
+get_t_df_p <- function(xbar1, sd1, n1, xbar2, sd2, n2) {
+  tts <- (xbar1 - xbar2) / sqrt(s1 * s1 / n1 + s2 * s2 / n2)
+  df <- ((s1 * s1 / n1 + s2 * s2 / n2) ^ 2) /
+    ((s1 * s1 / n1) ^ 2 / (n1 - 1) +
+       (s2 * s2 / n2) ^ 2 / (n2 - 1))
+  p_value <- 2 * pt(-abs(tts), df)
+  return(c(tts, df, p_value))
+}
+
+ttest_results <- get_t_df_p(wall_avg_psql, wall_sd_psql, wall_n_psql,
+                       wall_avg_maria, wall_sd_maria, wall_n_maria)
+# tts = 5.746485e+01, df = 5.646407e+06, p-value = 0.000000e+00
+
 # Disconnect from database
 dbDisconnect(psql_con)
 dbDisconnect(maria_con)
