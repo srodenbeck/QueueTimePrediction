@@ -112,7 +112,7 @@ def calculate_queue_features(engine):
     """
     calculate_queue_features()
 
-    alculates features relating to jobs currently in the queue when another job
+    Calculates features relating to jobs currently in the queue when another job
     is made eligible. Features include number of jobs queued, the total number of
     cpus in use by queued jobs, the total amount of memory being used by
     queued jobs, the total amount of nodes being used by queued jobs, and the
