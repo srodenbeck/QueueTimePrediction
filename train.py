@@ -13,6 +13,8 @@ import sys
 import neptune
 import transformations
 import smogn
+from scipy.stats import pearsonr
+
 
 import classify_train
 
@@ -33,10 +35,9 @@ flags.DEFINE_integer('hl2', 64, 'Hidden layer 1 dim')
 flags.DEFINE_float('dropout', 0.1, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
 flags.DEFINE_enum('activ', 'relu', ['relu', 'leaky_relu', 'elu'], 'Activation function')
-flags.DEFINE_boolean('transform', False,'Use transformations on features')
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
-flags.DEFINE_boolean('only_10min_plus', False, 'Only include jobs with planned longer than 10 mintues')
-flags.DEFINE_boolean('transform_target', True, 'Whether or not to transform the planned variable')
+flags.DEFINE_boolean('only_10min_plus', True, 'Only include jobs with planned longer than 10 mintues')
+flags.DEFINE_boolean('transform_target', False, 'Whether or not to transform the planned variable')
 flags.DEFINE_boolean('use_early_stopping', True, 'Whether or not to use early stopping')
 flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
 
@@ -216,7 +217,7 @@ def main(argv):
                      "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
                      "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
     num_features = len(feature_names)
-    num_jobs = 400_000
+    num_jobs = 4_000_000
     read_all = True if num_jobs == 0 else False
 
     # Specified parameters to upload to neptune
@@ -231,12 +232,15 @@ def main(argv):
         'optimizer': FLAGS.optimizer,
         'hl1': FLAGS.hl1,
         'hl2': FLAGS.hl2,
-        'dropout': FLAGS.dropout
+        'dropout': FLAGS.dropout,
+        '10_min_plus': FLAGS.only_10min_plus
     }
     run["parameters"] = params
 
     num_features = len(feature_names)
+    print("Reading from database")
     df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
+    print("Finished reading database")
     
     # Transform data if only_10min_plus flag is on, discards data with planned
     # less than 10 minutes
@@ -341,6 +345,26 @@ def main(argv):
         run["valid/within_10min_acc"].append(custom_loss["test_within_10min_correct"] / custom_loss["test_within_10min_total"] * 100)
         run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"] * 100)
         run["valid/binary_10min_acc"].append(custom_loss["test_binary_10min_correct"] / custom_loss["test_binary_10min_total"] * 100)
+
+    # Graphing and getting R2 value of model pred vs actual
+    print("Graphing pred vs actual and calculating pearsons r")
+    torch.eval()
+    y_pred = []
+    y_actual= []
+    with torch.no_grad():
+        for X, y in test_dataloader:
+            pred = model(X)
+            y_pred.extend(pred.flatten())
+            y_actual.extend(y)
+    r_value = pearsonr(y_pred, y_actual)
+    print("pearson's r: ", r_value)
+    plt.scatter(y_pred, y_actual)
+    plt.xlabel("y predicted")
+    plt.ylabel("y")
+    plt.show()
+
+    
+    
 
     run.stop()
 
