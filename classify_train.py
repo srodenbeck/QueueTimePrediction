@@ -3,18 +3,15 @@ from absl import app, flags
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from optuna.samplers import TPESampler
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
-from matplotlib import pyplot as plt
 from tqdm import tqdm
 import numpy as np
 import sys
 import neptune
 import neptune.integrations.optuna as npt_utils
 import transformations
-import smogn
 from torchmetrics.classification import MulticlassF1Score
 import imblearn.over_sampling
 import optuna
@@ -22,7 +19,6 @@ from optuna.trial import TrialState
 
 import config_file
 import read_db
-from model import nn_model, classify_model
 
 
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
@@ -112,13 +108,13 @@ def model_performance(model, X, y):
 def define_model(trial, num_features):
     in_features = num_features
     n_layers = trial.suggest_int("n_layers", 1, 3)
-    activ_fn = trial.suggest_categorical("activ_fn", ["relu", "tanh", "leaky_relu"])
+    activ_fn = trial.suggest_categorical("activ_fn", ["relu", "tanh", "leaky_relu", "elu"])
     if activ_fn == "relu":
         activ_fn = nn.ReLU()
     elif activ_fn == "tanh":
         activ_fn = nn.Tanh()
-    elif activ_fn == "sigmoid":
-        activ_fn = nn.Sigmoid()
+    elif activ_fn == "elu":
+        activ_fn = nn.ELU()
     elif activ_fn == "leaky_relu":
         activ_fn = nn.LeakyReLU()
     layers = []
@@ -163,9 +159,10 @@ def objective(trial):
     model = define_model(trial, num_features)
 
     lr = trial.suggest_float('lr', 1e-5, 1e-1, log=True)
-    optimizer = trial.suggest_categorical('optimizer', ['sgd', 'adam'])
     # epochs = trial.suggest_int('epochs', 10, 100)
-    epochs = 25
+    epochs = 40
+    # optimizer = trial.suggest_categorical('optimizer', ['sgd', 'adam'])\
+    optimizer = 'adam'
     if optimizer == 'sgd':
         optimizer = optim.SGD(params=model.parameters(), lr=lr)
     else:
@@ -203,13 +200,13 @@ def objective(trial):
                         correct_pred[true_class] += 1
                     total_pred[true_class] += 1
 
+
         # print(f"Epoch = {epoch}, Train_loss = {np.mean(train_loss):.2f}, Test Loss = {np.mean(test_loss):.5f}")
         train_loss_by_epoch.append(np.mean(train_loss))
         test_loss_by_epoch.append(np.mean(test_loss))
         # for i in range(len(correct_pred)):
         #     print(f"{classes[i]} accuracy: {correct_pred[i] / total_pred[i]}")
         total_acc = sum(correct_pred) / sum(total_pred)
-        # print(f"Total accuracy: {total_acc:.4f}")
         trial.report(total_acc, epoch)
 
         if trial.should_prune():
@@ -241,11 +238,11 @@ def start_trials():
         api_token=config_file.neptune_api_token,
         tags=["classify"]
     )
-    neptune_callback = npt_utils.NeptuneCallback(run_study)
 
+    sampler = TPESampler(n_startup_trials=10)
+    study = optuna.create_study(direction='maximize', study_name='namez', sampler=sampler)
+    study.optimize(objective, n_trials=50, timeout=500)
 
-    study = optuna.create_study(direction='maximize', study_name='namez')
-    study.optimize(objective, n_jobs=16, n_trials=50, timeout=500, callbacks=[neptune_callback])
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
@@ -263,6 +260,9 @@ def start_trials():
     print("  Params: ")
     for key, value in trial.params.items():
         print("    {}: {}".format(key, value))
+
+    run_study["valid/score"] = trial.value
+    npt_utils.log_study_metadata(study, run_study)
 
     run_study.stop()
 
