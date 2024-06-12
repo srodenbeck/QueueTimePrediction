@@ -4,6 +4,7 @@ import sklearn.preprocessing as preprocessing
 import scipy.stats as stats
 from scipy.special import inv_boxcox
 from sklearn.preprocessing import MinMaxScaler
+import numpy as np
 
 
 def normalize(train_data, test_data):
@@ -185,4 +186,7 @@ def scale_min_max(X_train, X_test):
     X_train = scaler.transform(X_train)
     X_test = scaler.transform(X_test)
     return X_train, X_test
+
+def scale_log(X_train, X_test):
+    return np.log(X_train), np.log(X_test)
     

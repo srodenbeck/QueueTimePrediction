@@ -25,11 +25,13 @@ flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_integer('epochs', 100, 'Number of Epochs')
 flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 16, 'Hidden layer 1 dim')
-flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
-flags.DEFINE_boolean('transform', False,'Use transformations on features')
+flags.DEFINE_integer('hl1', 64, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 32, 'Hidden layer 1 dim')
+flags.DEFINE_float('dropout', 0.1, 'Dropout rate')
+flags.DEFINE_boolean('transform', True,'Use transformations on features')
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
+flags.DEFINE_boolean('only_10min_plus', False, 'Only include jobs with planned longer than 10 mintues')
+flags.DEFINE_boolean('transform_target', True, 'Whether or not to transform the planned variable')
 
 FLAGS = flags.FLAGS
 
@@ -64,7 +66,11 @@ def create_dataloaders(X, y):
                                                         shuffle=FLAGS.shuffle,
                                                         random_state=0)
     if FLAGS.transform:
-        X_train, X_test = transformations.scale_min_max(X_train, X_test)
+        # X_train, X_test = transformations.scale_min_max(X_train, X_test)
+        X_train, X_test = transformations.scale_log(X_train, X_test)
+
+    if FLAGS.transform_target:
+        y_train, y_test = transformations.scale_log(y_train, y_test)
 
     # for i in range(X_train.shape[1]):
         # print(X_train[:, i])
@@ -111,9 +117,12 @@ def main(argv):
         api_token=config_file.neptune_api_token,
     )
 
-    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_nodes", "req_mem", "jobs_ahead_queue", "jobs_running"]
+    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem", 
+                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue", 
+                     "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
+                     "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
     num_features = len(feature_names)
-    num_jobs = 100000
+    num_jobs = 400_000
     read_all = True if num_jobs == 0 else False
 
     params = {
@@ -133,6 +142,9 @@ def main(argv):
 
     num_features = len(feature_names)
     df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
+    if FLAGS.only_10min_plus:
+        df = df[df['planned'] > 10 * 60]
+        print(f"Using {len(df)} jobs")
     np_array = df.to_numpy()
 
     # Read in desired features and target columns to numpy arrays
