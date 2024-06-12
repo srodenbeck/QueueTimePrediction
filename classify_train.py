@@ -52,9 +52,13 @@ def to_one_hot(np_array, num_classes=2):
     return one_hot
 
 
-def create_dataloaders(X, y):
+def create_dataloaders(X, y, transform):
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
                                                         shuffle=FLAGS.shuffle)
+    if transform == "log":
+        X_train, X_test = transformations.scale_log(X_train, X_test)
+    elif transform == "min_max":
+        X_train, X_test = transformations.scale_min_max(X_train, X_test)
 
     # First step: converting to tensor
     x_train_to_tensor = torch.from_numpy(X_train).to(torch.float32)
@@ -155,7 +159,10 @@ def objective(trial):
     for feature in chosen_features:
         feature_idxs.append(feature_mapping_dict[feature])
     X = X[:, feature_idxs]
-    train_dataloader, test_dataloader = create_dataloaders(X, y_one_hot)
+
+    transform = trial.suggest_categorical("transform", ["none", "log", "min_max"])
+
+    train_dataloader, test_dataloader = create_dataloaders(X, y_one_hot, transform)
     model = define_model(trial, num_features)
 
     lr = trial.suggest_float('lr', 1e-5, 1e-1, log=True)
@@ -239,9 +246,9 @@ def start_trials():
         tags=["classify"]
     )
 
-    sampler = TPESampler(n_startup_trials=10)
+    sampler = TPESampler(n_startup_trials=25)
     study = optuna.create_study(direction='maximize', study_name='namez', sampler=sampler)
-    study.optimize(objective, n_trials=50, timeout=500)
+    study.optimize(objective, n_trials=100, timeout=500)
 
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
