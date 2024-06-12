@@ -1,5 +1,6 @@
 library(RMariaDB)
 library(RPostgres)
+library(dplyr)
 
 # Connect to databases
 psql_con <- dbConnect(
@@ -188,6 +189,53 @@ ttest_results <- get_t_df_p(wall_avg_psql, wall_sd_psql, wall_n_psql,
                        wall_avg_maria, wall_sd_maria, wall_n_maria)
 # tts = 5.746485e+01, df = 5.646407e+06, p-value = 0.000000e+00
 
-# Disconnect from database
+
+
+
+
+# Requested Processors
+# Maria DB looks to have one or maybe two jobs with 2147483647 (max int) processors
+
+
+maria_result$req_processors <- maria_result$processors[maria_result$processors < 20000]
+psql_result$req_processors <- psql_result$req_cpus[psql_result$req_cpus < 20000]
+
+
+
+
+maria_data <- maria_result %>%
+  filter(processors < 20000)
+maria_data$log_processors <- log(maria_data$processors + 1)
+
+maria_cpus_avg <- mean(maria_data$log_processors)
+maria_cpus_sd <- sd(maria_data$log_processors)
+maria_cpus_n <- length(maria_data$log_processors)
+
+psql_data <- psql_result %>%
+  filter(req_cpus < 20000)
+psql_data$req_cpus[psql_data$req_cpus == 0] = 1
+psql_data$log_processors <- log(psql_data$req_cpus)
+  
+psql_cpus_avg <- mean(psql_data$log_processors)
+psql_cpus_sd <- sd(psql_data$log_processors)
+psql_cpus_n <- length(psql_data$log_processors)
+
+ggplot(maria_data, aes(x = log_processors)) +
+  geom_histogram(aes(y = after_stat(density)), bins = n_bins, fill = "grey", col = "black") + 
+  geom_density(col = "red", lwd = 1) + 
+  stat_function(fun = dnorm, args = list(mean = maria_cpus_avg, sd = maria_cpus_sd), col="blue", lwd = 1) + 
+  ggtitle("Histogram of Processors Maria") +
+  xlim(-0.5, 10) +
+  ylim(-0.01, 1.5)
+
+ggplot(psql_data, aes(x = log_processors)) +
+  geom_histogram(aes(y = after_stat(density)), bins = n_bins, fill = "grey", col = "black") + 
+  geom_density(col = "red", lwd = 1) + 
+  stat_function(fun = dnorm, args = list(mean = psql_cpus_avg, sd = psql_cpus_sd), col="blue", lwd = 1) + 
+  ggtitle("Histogram of Processors Postgres") +
+  xlim(-0.5, 10) +
+  ylim(-0.01, 1.5)
+
+ # Disconnect from database
 dbDisconnect(psql_con)
 dbDisconnect(maria_con)

@@ -12,7 +12,7 @@ import numpy as np
 import sys
 import neptune
 import transformations
-import smogn
+# import smogn
 
 import config_file
 import read_db
@@ -61,7 +61,8 @@ def get_feature_indices(df, feature_names):
 
 def create_dataloaders(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
-                                                        shuffle=FLAGS.shuffle)
+                                                        shuffle=FLAGS.shuffle,
+                                                        random_state=0)
     if FLAGS.transform:
         X_train, X_test = transformations.scale_min_max(X_train, X_test)
 

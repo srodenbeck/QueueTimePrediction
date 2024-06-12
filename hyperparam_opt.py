@@ -135,6 +135,9 @@ def train(params, epochs, train_dataloader, val_dataloader):
         for X, y in val_dataloader:
             with torch.no_grad():
                 pred = model(X)
+                
+
+                
                 loss = loss_fn(pred.flatten(), y)
                 final_loss = loss
                 # if epoch == epochs - 1:
@@ -143,10 +146,11 @@ def train(params, epochs, train_dataloader, val_dataloader):
                 test_loss.append(loss.item())
                 pred[pred < 0] = 0
                 sub_tensor = torch.sub(pred.flatten(), y)
-                binary_within = torch.where(torch.abs(sub_tensor) < 5, 1, 0)
+                binary_within = torch.where(torch.abs(sub_tensor) < 5,  1, 0)
                 test_within_10min_total += binary_within.shape[0]
                 test_within_10min_correct += binary_within.sum().item()
-
+                
+        print()
         print(f"Epoch = {epoch}, Train_loss = {np.mean(train_loss):.2f}, Test Loss = {np.mean(test_loss):.5f}")
         train_loss_by_epoch.append(np.mean(train_loss))
         test_loss_by_epoch.append(np.mean(test_loss))
