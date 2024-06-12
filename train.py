@@ -20,18 +20,20 @@ from model import nn_model
 
 
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
-flags.DEFINE_float('lr', 0.01, 'Learning rate.')
+flags.DEFINE_float('lr', 0.001, 'Learning rate.')
 flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_integer('epochs', 100, 'Number of Epochs')
 flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 64, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 32, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl1', 128, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 64, 'Hidden layer 1 dim')
 flags.DEFINE_float('dropout', 0.1, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
 flags.DEFINE_boolean('only_10min_plus', False, 'Only include jobs with planned longer than 10 mintues')
 flags.DEFINE_boolean('transform_target', True, 'Whether or not to transform the planned variable')
+flags.DEFINE_boolean('use_early_stopping', True, 'Whether or not to use early stopping')
+flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
 
 FLAGS = flags.FLAGS
 
@@ -62,6 +64,8 @@ def get_feature_indices(df, feature_names):
 
 
 def create_dataloaders(X, y):
+    print("Mean: ", np.mean(y), "Min: ", min(y))
+    
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
                                                         shuffle=FLAGS.shuffle,
                                                         random_state=0)
@@ -143,6 +147,7 @@ def main(argv):
     num_features = len(feature_names)
     df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
     if FLAGS.only_10min_plus:
+        print("10 plus flag: ", FLAGS.only_10min_plus)
         df = df[df['planned'] > 10 * 60]
         print(f"Using {len(df)} jobs")
     np_array = df.to_numpy()
@@ -184,11 +189,16 @@ def main(argv):
     # Run training loop
     train_loss_by_epoch = []
     test_loss_by_epoch = []
-
+    
+    best_test_loss = float('inf')
+    patience_counter = 0
+    
     for epoch in range(FLAGS.epochs):
         train_loss = []
         test_loss = []
         custom_loss = dict.fromkeys(custom_loss, 0)
+        
+        model.train()
         for X, y in train_dataloader:
             pred = model(X)
             loss = loss_fn(pred.flatten(), y)
@@ -198,6 +208,7 @@ def main(argv):
             train_loss.append(loss.item())
             calculate_custom_loss(pred.flatten(), y, "train")
 
+        model.eval()
         for X, y in test_dataloader:
             with torch.no_grad():
                 pred = model(X)
@@ -207,12 +218,27 @@ def main(argv):
                 if epoch == FLAGS.epochs - 1:
                     for i in range(y.shape[0]):
                         print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
+        
+        avg_train_loss = np.mean(train_loss)
+        avg_test_loss = np.mean(test_loss)
+        
+        if avg_test_loss < best_test_loss:
+            best_test_loss = avg_test_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+        
+        if patience_counter >= FLAGS.early_stopping_patience and FLAGS.use_early_stopping:
+            print(f"Early stopping triggered after {epoch + 1} epochs")
+            for i in range(y.shape[0]):
+                print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
+            break
 
-        print(f"Epoch = {epoch}, Train_loss = {np.mean(train_loss):.2f}, Test Loss = {np.mean(test_loss):.5f}")
-        train_loss_by_epoch.append(np.mean(train_loss))
-        test_loss_by_epoch.append(np.mean(test_loss))
-        run["train/loss"].append(np.mean(train_loss))
-        run["valid/loss"].append(np.mean(test_loss))
+        print(f"Epoch = {epoch}, Train_loss = {avg_train_loss:.2f}, Test Loss = {avg_test_loss:.5f}")
+        train_loss_by_epoch.append(avg_train_loss)
+        test_loss_by_epoch.append(avg_test_loss)
+        run["train/loss"].append(avg_train_loss)
+        run["valid/loss"].append(avg_test_loss)
         run["train/within_10min_acc"].append(custom_loss["train_within_10min_correct"] / custom_loss["train_within_10min_total"] * 100)
         run["valid/within_10min_acc"].append(custom_loss["test_within_10min_correct"] / custom_loss["test_within_10min_total"] * 100)
         run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"] * 100)

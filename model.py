@@ -13,7 +13,9 @@ class nn_model(nn.Module):
         layers.append(nn.Linear(hl1, hl2))
         layers.append(activation_layer)
         layers.append(nn.Dropout(dropout))
-        layers.append(nn.Linear(hl2, 1))
+        layers.append(nn.Linear(hl2, 32))
+        layers.append(activation_layer)
+        layers.append(nn.Linear(32, 1))
         self.model = torch.nn.Sequential(*layers)
 
     def forward(self, x):
