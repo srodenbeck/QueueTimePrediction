@@ -209,6 +209,7 @@ def main(argv):
     run = neptune.init_run(
         project="queue/trout",
         api_token=config_file.neptune_api_token,
+        tags=["regression"]
     )
 
     # Feature names to use in training
