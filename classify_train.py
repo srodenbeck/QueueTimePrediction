@@ -134,16 +134,25 @@ def define_model(trial, num_features):
     return nn.Sequential(*layers)
 
 def feature_options(features):
-    if features == "queue_all":
+    if features == "queue":
         return ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue"]
-    else:
-        # TODO Add options
+    elif features == "request":
+        return ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes"]
+    elif features == "running":
+        return ["jobs_running", "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+    elif features == "memory":
+        return ["req_mem", "memory_ahead_queue", "memory_running"]
+    elif features == "cpu":
+        return ["req_cpus", "cpus_ahead_queue", "cpus_running"]
+    elif features == "all":
         return ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
-                "time_limit_ahead_queue"]
-
+                "time_limit_ahead_queue", "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
+                "jobs_running", "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+    elif features == "job_count":
+        return ["priority", "jobs_ahead_queue", "jobs_running"]
 def objective(trial):
     X, y_one_hot, feature_mapping_dict = load_data()
-    features = trial.suggest_categorical("features", ['memory_all', 'cpu_all', 'job_count_all', 'queue_all', 'running_all', 'request_all', 'all'])
+    features = trial.suggest_categorical("features", ['memory', 'cpu', 'job_count', 'queue', 'running', 'request', 'all'])
     chosen_features = feature_options(features)
     num_features = len(chosen_features)
     feature_idxs = []
@@ -154,13 +163,11 @@ def objective(trial):
     model = define_model(trial, num_features)
 
     lr = trial.suggest_float('lr', 1e-5, 1e-1, log=True)
-    optimizer = trial.suggest_categorical('optimizer', ['sgd', 'adam', 'adamw'])
+    optimizer = trial.suggest_categorical('optimizer', ['sgd', 'adam'])
     # epochs = trial.suggest_int('epochs', 10, 100)
     epochs = 25
     if optimizer == 'sgd':
         optimizer = optim.SGD(params=model.parameters(), lr=lr)
-    elif optimizer == 'adamw':
-        optimizer = optim.AdamW(params=model.parameters(), lr=lr)
     else:
         optimizer = optim.Adam(params=model.parameters(), lr=lr)
     loss_fn = nn.CrossEntropyLoss()
@@ -232,18 +239,13 @@ def start_trials():
     run_study = neptune.init_run(
         project="queue/trout",
         api_token=config_file.neptune_api_token,
-        tags=["classify", f"n_jobs={FLAGS.n_jobs}"]
+        tags=["classify"]
     )
-    neptune_callback = npt_utils.NeptuneCallback(
-        run_study,
-        plots_update_freq=5,  # create/log plots every 10 trials
-        log_plot_slice=True,  # do not create/log plot_slice
-        log_plot_contour=True,  # do not create/log plot_contour
-    )
+    neptune_callback = npt_utils.NeptuneCallback(run_study)
 
 
     study = optuna.create_study(direction='maximize', study_name='namez')
-    study.optimize(objective, n_trials=50, timeout=500, callbacks=[neptune_callback])
+    study.optimize(objective, n_jobs=16, n_trials=50, timeout=500, callbacks=[neptune_callback])
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
