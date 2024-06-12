@@ -28,9 +28,9 @@ def calculate_running_features(engine):
 
     """
     # Read in dataframe
-    all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
+    all_df = pd.read_sql_query("SELECT * FROM jobs_queue_only ORDER BY eligible", engine)
     df = pd.read_sql_query(
-        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_2021_2025_05_02 ORDER BY eligible",
+        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_queue_only ORDER BY eligible",
         engine)
     df['start_time'] = df['start_time'].apply(lambda x: x.timestamp()).astype('int64')
     df['end_time'] = df['end_time'].apply(lambda x: x.timestamp()).astype('int64')
@@ -70,7 +70,8 @@ def calculate_running_features(engine):
         count += 1
         if np_array[job_idx, idx_dict["START_TIME"]] < np_array[job_idx, idx_dict["END_TIME"]]:
             trees[tree_idx][np_array[job_idx, idx_dict["START_TIME"]].astype(np.int32):np_array[job_idx, idx_dict["END_TIME"]].astype(np.int32)] = job_idx
-        if count == tree_size:
+        # Make last tree size of 3 normal trees to prevent edge case issues
+        if count == tree_size and ((np_array.shape[0] - job_idx) > (3 * tree_size)):
             tmp = sorted(trees[tree_idx])[-tree_overlap:]
             for interval in tmp:
                 trees[tree_idx + 1][interval[0]:interval[1]] = interval[2]
@@ -83,18 +84,19 @@ def calculate_running_features(engine):
 
     # Loop through jobs and add in data for all jobs whose trees overlap
     tree_idx = 0
-    for job in tqdm(range(np_array.shape[0])):
+    count = 0
+    for job_idx in tqdm(range(np_array.shape[0])):
         count += 1
-        running_features[job, 0] = np_array[job, idx_dict["JOB_ID"]]
-        for overlapping in trees[tree_idx][np_array[job, idx_dict["ELIGIBLE"]]]:
-            if overlapping[2] != np_array[job, idx_dict["JOB_ID"]]:
+        running_features[job_idx, 0] = np_array[job_idx, idx_dict["JOB_ID"]]
+        for overlapping in trees[tree_idx][np_array[job_idx, idx_dict["ELIGIBLE"]]]:
+            if overlapping[2] != np_array[job_idx, idx_dict["JOB_ID"]]:
                 jobs_running_idx = overlapping[2]
-                running_features[job, 1] += 1
-                running_features[job, 2] += np_array[jobs_running_idx, idx_dict["REQ_CPUS"]].astype(np.uint32)
-                running_features[job, 3] += np_array[jobs_running_idx, idx_dict["REQ_MEM"]]
-                running_features[job, 4] += np_array[jobs_running_idx, idx_dict["REQ_NODES"]].astype(np.uint32)
-                running_features[job, 5] += np_array[jobs_running_idx, idx_dict["TIME_LIMIT_RAW"]].astype(np.uint32)
-        if count == tree_size:
+                running_features[job_idx, 1] += 1
+                running_features[job_idx, 2] += np_array[jobs_running_idx, idx_dict["REQ_CPUS"]].astype(np.uint32)
+                running_features[job_idx, 3] += np_array[jobs_running_idx, idx_dict["REQ_MEM"]]
+                running_features[job_idx, 4] += np_array[jobs_running_idx, idx_dict["REQ_NODES"]].astype(np.uint32)
+                running_features[job_idx, 5] += np_array[jobs_running_idx, idx_dict["TIME_LIMIT_RAW"]].astype(np.uint32)
+        if count == tree_size and ((np_array.shape[0] - job_idx) > (3 * tree_size)):
             tree_idx += 1
             count = 0
 
@@ -105,7 +107,7 @@ def calculate_running_features(engine):
          "memory_running": running_features[:, 3], "nodes_running": running_features[:, 4].astype(np.uint32),
          "time_limit_running": running_features[:, 5].astype(np.uint32)})
     all_df.update(new_df)
-    all_df.to_sql('new_jobs_odd', engine, if_exists='replace', index=False)
+    all_df.to_sql('jobs', engine, if_exists='replace', index=False)
 
 
 def calculate_queue_features(engine):
@@ -129,9 +131,9 @@ def calculate_queue_features(engine):
 
     """
     # Read in dataframe
-    all_df = pd.read_sql_query("SELECT * FROM new_jobs_odd ORDER BY eligible", engine)
+    all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
     df = pd.read_sql_query(
-        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM new_jobs_odd ORDER BY eligible",
+        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_2021_2025_05_02 ORDER BY eligible",
         engine)
     df['start_time'] = df['start_time'].apply(lambda x: x.timestamp()).astype('int64')
     df['end_time'] = df['end_time'].apply(lambda x: x.timestamp()).astype('int64')
@@ -166,7 +168,8 @@ def calculate_queue_features(engine):
         count += 1
         if np_array[job_idx, idx_dict["ELIGIBLE"]] != np_array[job_idx, idx_dict["START_TIME"]]:
             trees[tree_idx][np_array[job_idx, idx_dict["ELIGIBLE"]]:np_array[job_idx, idx_dict["START_TIME"]]] = job_idx
-        if count == tree_size:
+        # Make last tree size of 3 normal trees to prevent edge case issues
+        if count == tree_size and ((np_array.shape[0] - job_idx) > (3 * tree_size)):
             tmp = sorted(trees[tree_idx])[-tree_overlap:]
             for interval in tmp:
                 trees[tree_idx + 1][interval[0]:interval[1]] = interval[2]
@@ -179,18 +182,19 @@ def calculate_queue_features(engine):
 
     # Loop through jobs and add in data for all jobs whose trees overlap
     tree_idx = 0
-    for job in tqdm(range(np_array.shape[0])):
+    count = 0
+    for job_idx in tqdm(range(np_array.shape[0])):
         count += 1
-        queue_features[job, 0] = np_array[job, idx_dict["JOB_ID"]]
-        for overlapping in trees[tree_idx][np_array[job, idx_dict["ELIGIBLE"]]]:
-            if overlapping[2] != np_array[job, idx_dict["JOB_ID"]]:
+        queue_features[job_idx, 0] = np_array[job_idx, idx_dict["JOB_ID"]]
+        for overlapping in trees[tree_idx][np_array[job_idx, idx_dict["ELIGIBLE"]]]:
+            if overlapping[2] != np_array[job_idx, idx_dict["JOB_ID"]]:
                 jobs_running_idx = overlapping[2]
-                queue_features[job, 1] += 1
-                queue_features[job, 2] += np_array[jobs_running_idx, idx_dict["REQ_CPUS"]].astype(np.uint32)
-                queue_features[job, 3] += np_array[jobs_running_idx, idx_dict["REQ_MEM"]]
-                queue_features[job, 4] += np_array[jobs_running_idx, idx_dict["REQ_NODES"]].astype(np.uint32)
-                queue_features[job, 5] += np_array[jobs_running_idx, idx_dict["TIME_LIMIT_RAW"]].astype(np.uint32)
-        if count == tree_size:
+                queue_features[job_idx, 1] += 1
+                queue_features[job_idx, 2] += np_array[jobs_running_idx, idx_dict["REQ_CPUS"]].astype(np.uint32)
+                queue_features[job_idx, 3] += np_array[jobs_running_idx, idx_dict["REQ_MEM"]]
+                queue_features[job_idx, 4] += np_array[jobs_running_idx, idx_dict["REQ_NODES"]].astype(np.uint32)
+                queue_features[job_idx, 5] += np_array[jobs_running_idx, idx_dict["TIME_LIMIT_RAW"]].astype(np.uint32)
+        if count == tree_size and ((np_array.shape[0] - job_idx) > (3 * tree_size)):
             tree_idx += 1
             count = 0
 
@@ -201,7 +205,7 @@ def calculate_queue_features(engine):
          "memory_ahead_queue": queue_features[:, 3], "nodes_ahead_queue": queue_features[:, 4].astype(np.uint32),
          "time_limit_ahead_queue": queue_features[:, 5].astype(np.uint32)})
     all_df.update(new_df)
-    all_df.to_sql('new_jobs_all', engine, if_exists='replace', index=False)
+    all_df.to_sql('jobs_queue_only', engine, if_exists='replace', index=False)
 
 
 

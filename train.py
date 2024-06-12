@@ -29,6 +29,11 @@ flags.DEFINE_integer('hl1', 128, 'Hidden layer 1 dim')
 flags.DEFINE_integer('hl2', 64, 'Hidden layer 1 dim')
 flags.DEFINE_float('dropout', 0.1, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
+flags.DEFINE_enum('activ', 'relu', ['relu', 'leaky_relu', 'elu'], 'Activation function')
+flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 16, 'Hidden layer 1 dim')
+flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
+flags.DEFINE_boolean('transform', False,'Use transformations on features')
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
 flags.DEFINE_boolean('only_10min_plus', False, 'Only include jobs with planned longer than 10 mintues')
 flags.DEFINE_boolean('transform_target', True, 'Whether or not to transform the planned variable')
@@ -65,10 +70,10 @@ def get_feature_indices(df, feature_names):
 
 def create_dataloaders(X, y):
     print("Mean: ", np.mean(y), "Min: ", min(y))
-    
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
                                                         shuffle=FLAGS.shuffle,
-                                                        random_state=0)
+                                                        random_state=42)
     if FLAGS.transform:
         # X_train, X_test = transformations.scale_min_max(X_train, X_test)
         X_train, X_test = transformations.scale_log(X_train, X_test)
@@ -113,7 +118,6 @@ def calculate_custom_loss(pred, y, train_or_test):
     custom_loss[f"{train_or_test}_binary_10min_correct"] += binary_10min.sum().item()
 
 
-
 def main(argv):
     global custom_loss
     run = neptune.init_run(
@@ -121,8 +125,8 @@ def main(argv):
         api_token=config_file.neptune_api_token,
     )
 
-    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem", 
-                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue", 
+    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
+                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
                      "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
                      "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
     num_features = len(feature_names)
@@ -164,7 +168,7 @@ def main(argv):
 
     train_dataloader, test_dataloader = create_dataloaders(X, y)
 
-    model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout)
+    model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout, FLAGS.activ)
 
     # loss function
     if FLAGS.loss == "l1_loss":
@@ -189,15 +193,15 @@ def main(argv):
     # Run training loop
     train_loss_by_epoch = []
     test_loss_by_epoch = []
-    
+
     best_test_loss = float('inf')
     patience_counter = 0
-    
+
     for epoch in range(FLAGS.epochs):
         train_loss = []
         test_loss = []
         custom_loss = dict.fromkeys(custom_loss, 0)
-        
+
         model.train()
         for X, y in train_dataloader:
             pred = model(X)
@@ -218,16 +222,16 @@ def main(argv):
                 if epoch == FLAGS.epochs - 1:
                     for i in range(y.shape[0]):
                         print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
-        
+
         avg_train_loss = np.mean(train_loss)
         avg_test_loss = np.mean(test_loss)
-        
+
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
             patience_counter = 0
         else:
             patience_counter += 1
-        
+
         if patience_counter >= FLAGS.early_stopping_patience and FLAGS.use_early_stopping:
             print(f"Early stopping triggered after {epoch + 1} epochs")
             for i in range(y.shape[0]):
