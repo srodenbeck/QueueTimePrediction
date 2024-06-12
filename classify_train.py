@@ -30,6 +30,7 @@ flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
 flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
 flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
+flags.DEFINE_integer('n_jobs', 10_000, 'Number of jobs to run on')
 
 FLAGS = flags.FLAGS
 
@@ -210,7 +211,7 @@ def objective(trial):
 
 
 def load_data():
-    num_jobs = 10_000
+    num_jobs = FLAGS.n_jobs
     read_all = True if num_jobs == 0 else False
 
     df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
@@ -231,6 +232,7 @@ def start_trials():
     run_study = neptune.init_run(
         project="queue/trout",
         api_token=config_file.neptune_api_token,
+        tags=["classify", f"n_jobs={FLAGS.n_jobs}"]
     )
     neptune_callback = npt_utils.NeptuneCallback(
         run_study,
