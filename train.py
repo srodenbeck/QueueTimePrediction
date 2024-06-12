@@ -12,11 +12,14 @@ import numpy as np
 import sys
 import neptune
 import transformations
-# import smogn
+import smogn
+
+import classify_train
 
 import config_file
 import read_db
 from model import nn_model
+
 
 
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
@@ -30,15 +33,18 @@ flags.DEFINE_integer('hl2', 64, 'Hidden layer 1 dim')
 flags.DEFINE_float('dropout', 0.1, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
 flags.DEFINE_enum('activ', 'relu', ['relu', 'leaky_relu', 'elu'], 'Activation function')
-flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 16, 'Hidden layer 1 dim')
-flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 flags.DEFINE_boolean('transform', False,'Use transformations on features')
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
 flags.DEFINE_boolean('only_10min_plus', False, 'Only include jobs with planned longer than 10 mintues')
 flags.DEFINE_boolean('transform_target', True, 'Whether or not to transform the planned variable')
 flags.DEFINE_boolean('use_early_stopping', True, 'Whether or not to use early stopping')
 flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
+
+flags.DEFINE_boolean('balance_dataset', False, 'Whether or not to use balance_dataset()')
+
+flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
+flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
+
 
 FLAGS = flags.FLAGS
 
@@ -53,11 +59,43 @@ custom_loss = {
     "test_binary_10min_total":  0
 }
 
+
 def get_planned_target_index(df):
+    """
+    get_planned_target_index()
+    Returns the index of the column 'planned' in df
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe of information.
+
+    Returns
+    -------
+    INT
+        Index of the 'planned' column in df.
+
+    """
     return df.columns.get_loc('planned')
 
 
 def get_feature_indices(df, feature_names):
+    """
+    get_feature_indices()
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe of information from database.
+    feature_names : List (str)
+        List of strings containing the names of desired features.
+
+    Returns
+    -------
+    feature_indices : List (int)
+        List of indices of all features in feature_names from df.
+
+    """
     feature_indices = []
     for feature_name in feature_names:
         try:
@@ -67,9 +105,30 @@ def get_feature_indices(df, feature_names):
             sys.exit(1)
     return feature_indices
 
-
 def create_dataloaders(X, y):
-    print("Mean: ", np.mean(y), "Min: ", min(y))
+    """
+    create_dataloaders()
+    
+    Creates pytorch dataloaders from the given information
+
+    Parameters
+    ----------
+    X : np array
+        2-D Array of input features.
+    y : np array
+        Array of target feature.
+
+    Returns
+    -------
+    train_dataloader : torch.utils.data.DataLoader
+        Dataloader for training data.
+    test_dataloader : torch.utils.data.DataLoader
+        Dataloader for testing data.
+
+    """
+    # EXPERIMENTAL
+    if FLAGS.balance_dataset:
+        X, y = classify_train.balance_dataset(X, y)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
                                                         shuffle=FLAGS.shuffle,
@@ -105,26 +164,53 @@ def create_dataloaders(X, y):
 
 
 def calculate_custom_loss(pred, y, train_or_test):
+    """
+    calculate_custom_loss()
+
+    Updates custom_loss with various losses from custom loss functions,
+    including the accuracy of predictions within 10 minutes and the accuracy
+    of the model as a binary classifier with a split point at 10 minutes.
+
+    Parameters
+    ----------
+    pred : float
+        Predicted value from the model.
+    y : float
+        DESCRIPTION.
+    train_or_test : TYPE
+        Actual value which model attempts to predict.
+
+    Returns
+    -------
+    None.
+
+    """
+    # Calculating loss in regards to how many target values were within 10 
+    # minutes of predicted values
     sub_tensor = torch.sub(pred.flatten(), y)
     binary_within = torch.where(torch.abs(sub_tensor) < 10, 1, 0)
     pred[pred < 0] = 0
     custom_loss[f"{train_or_test}_within_10min_total"] += binary_within.shape[0]
     custom_loss[f"{train_or_test}_within_10min_correct"] += binary_within.sum().item()
 
+    # Calculating loss in regards to number of correct binary classifications,
+    # splitting data at 10 minutes
     y_binary = torch.where(y > 10, 1, 0)
     pred_binary = torch.where(pred.flatten() > 10, 1, 0)
     binary_10min = torch.where(y_binary == pred_binary, 1, 0)
     custom_loss[f"{train_or_test}_binary_10min_total"] += binary_10min.shape[0]
     custom_loss[f"{train_or_test}_binary_10min_correct"] += binary_10min.sum().item()
 
-
 def main(argv):
     global custom_loss
+    
+    # Connect to neptune
     run = neptune.init_run(
         project="queue/trout",
         api_token=config_file.neptune_api_token,
     )
 
+    # Feature names to use in training
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
                      "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
                      "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
@@ -133,6 +219,7 @@ def main(argv):
     num_jobs = 400_000
     read_all = True if num_jobs == 0 else False
 
+    # Specified parameters to upload to neptune
     params = {
         'feature_names': str(feature_names),
         'num_features': num_features,
@@ -150,6 +237,9 @@ def main(argv):
 
     num_features = len(feature_names)
     df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
+    
+    # Transform data if only_10min_plus flag is on, discards data with planned
+    # less than 10 minutes
     if FLAGS.only_10min_plus:
         print("10 plus flag: ", FLAGS.only_10min_plus)
         df = df[df['planned'] > 10 * 60]
@@ -166,8 +256,10 @@ def main(argv):
     # Transformations
     y = y / 60
 
+    # Make dataloaders from arrays
     train_dataloader, test_dataloader = create_dataloaders(X, y)
 
+    # Create model
     model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout, FLAGS.activ)
 
     # loss function
@@ -202,6 +294,7 @@ def main(argv):
         test_loss = []
         custom_loss = dict.fromkeys(custom_loss, 0)
 
+        # Training
         model.train()
         for X, y in train_dataloader:
             pred = model(X)
@@ -212,6 +305,7 @@ def main(argv):
             train_loss.append(loss.item())
             calculate_custom_loss(pred.flatten(), y, "train")
 
+        # Evaluation/Validation
         model.eval()
         for X, y in test_dataloader:
             with torch.no_grad():

@@ -4,6 +4,29 @@ import torch.nn as nn
 
 class nn_model(nn.Module):
     def __init__(self, input_dim, hl1, hl2, dropout, activ):
+        """
+        __init__()
+        
+        Initiates nn_model instance with given hyperparameters
+
+        Parameters
+        ----------
+        input_dim : int
+            Size of input data.
+        hl1 : int
+            Size of first hidden layer.
+        hl2 : int
+            Size of second hidden layer.
+        dropout : float
+            Proportion of data to drop (ranging from 0.0 to 1.0).
+        activ : function
+            Activation function to use. Base case is ReLU function.
+
+        Returns
+        -------
+        None.
+
+        """
         super(nn_model, self).__init__()
         if activ == "leaky_relu":
             activation_layer = nn.LeakyReLU()
@@ -21,11 +44,27 @@ class nn_model(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hl2, 32),
             activation_layer,
-            nn.Linear(hl2, 1)
+            nn.Linear(32, 1)
         ]
         self.model = torch.nn.Sequential(*layers)
 
     def forward(self, x):
+        """
+        forward()
+        
+        Feeds input data x through the model's layers
+
+        Parameters
+        ----------
+        x : Array
+            Input data stored in an array format.
+
+        Returns
+        -------
+        out : Float
+            Predicted value from passing x through the model.
+
+        """
         out = self.model(x)
         return out
 
