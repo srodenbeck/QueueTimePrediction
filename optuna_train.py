@@ -6,22 +6,16 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
-from matplotlib import pyplot as plt
-from tqdm import tqdm
 import numpy as np
 import sys
 import neptune
 import transformations
-import smogn
 import optuna
 from optuna.samplers import TPESampler
 import time
 
 import classify_train
 
-import config_file
 import read_db
 from model import nn_model
 
@@ -55,7 +49,11 @@ custom_loss = {
     "train_binary_10min_correct":  0,
     "train_binary_10min_total":  0,
     "test_binary_10min_correct":  0,
-    "test_binary_10min_total":  0
+    "test_binary_10min_total":  0,
+    "val_within_10min_correct": 0,
+    "val_within_10min_total": 0,
+    "val_binary_10min_correct": 0,
+    "val_binary_10min_total": 0
 }
 
 def get_planned_target_index(df):
@@ -68,6 +66,7 @@ def get_feature_indices(df, feature_names):
             feature_indices.append(df.columns.get_loc(feature_name))
         except Exception as e:
             print(f"Error: Could not find '{feature_name}' in database\nExiting...")
+            print(e)
             sys.exit(1)
     return feature_indices
 
@@ -75,39 +74,48 @@ def create_dataloaders(X, y):
     if FLAGS.balance_dataset:
         X, y = classify_train.balance_dataset(X, y)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.9,
                                                         shuffle=FLAGS.shuffle,
                                                         random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, train_size=0.9,
+                                                      shuffle=FLAGS.shuffle,
+                                                      random_state=42)
     if FLAGS.transform:
-        X_train, X_test = transformations.scale_log(X_train, X_test)
+        _, X_test = transformations.scale_log(X_train, X_test)
+        X_train, X_val = transformations.scale_log(X_train, X_val)
 
     if FLAGS.transform_target:
-        y_train, y_test = transformations.scale_log(y_train, y_test)
+        _, y_test = transformations.scale_log(y_train, y_test)
+        y_train, y_val = transformations.scale_log(y_train, y_val)
 
     x_train_to_tensor = torch.from_numpy(X_train).to(torch.float32)
     y_train_to_tensor = torch.from_numpy(y_train).to(torch.float32)
     x_test_to_tensor = torch.from_numpy(X_test).to(torch.float32)
     y_test_to_tensor = torch.from_numpy(y_test).to(torch.float32)
+    x_val_to_tensor = torch.from_numpy(X_val).to(torch.float32)
+    y_val_to_tensor = torch.from_numpy(y_val).to(torch.float32)
 
     train_dataset = TensorDataset(x_train_to_tensor, y_train_to_tensor)
     test_dataset = TensorDataset(x_test_to_tensor, y_test_to_tensor)
+    val_dataset = TensorDataset(x_val_to_tensor, y_val_to_tensor)
 
     train_dataloader = DataLoader(train_dataset, batch_size=FLAGS.batch_size)
     test_dataloader = DataLoader(test_dataset, batch_size=FLAGS.batch_size)
-    return train_dataloader, test_dataloader
+    val_dataloader = DataLoader(val_dataset, batch_size=FLAGS.batch_size)
+    return train_dataloader, test_dataloader, val_dataloader
 
-def calculate_custom_loss(pred, y, train_or_test):
+def calculate_custom_loss(pred, y, train_test_or_val):
     sub_tensor = torch.sub(pred.flatten(), y)
     binary_within = torch.where(torch.abs(sub_tensor) < 10, 1, 0)
     pred[pred < 0] = 0
-    custom_loss[f"{train_or_test}_within_10min_total"] += binary_within.shape[0]
-    custom_loss[f"{train_or_test}_within_10min_correct"] += binary_within.sum().item()
+    custom_loss[f"{train_test_or_val}_within_10min_total"] += binary_within.shape[0]
+    custom_loss[f"{train_test_or_val}_within_10min_correct"] += binary_within.sum().item()
 
     y_binary = torch.where(y > 10, 1, 0)
     pred_binary = torch.where(pred.flatten() > 10, 1, 0)
     binary_10min = torch.where(y_binary == pred_binary, 1, 0)
-    custom_loss[f"{train_or_test}_binary_10min_total"] += binary_10min.shape[0]
-    custom_loss[f"{train_or_test}_binary_10min_correct"] += binary_10min.sum().item()
+    custom_loss[f"{train_test_or_val}_binary_10min_total"] += binary_10min.shape[0]
+    custom_loss[f"{train_test_or_val}_binary_10min_correct"] += binary_10min.sum().item()
 
 def objective(trial):
     global custom_loss
@@ -120,13 +128,12 @@ def objective(trial):
                      "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
     num_features = len(feature_names)
     num_jobs = 400_000
-    read_all = True if num_jobs == 0 else False
 
     params = {
         'feature_names': str(feature_names),
         'num_features': num_features,
         'num_jobs': num_jobs,
-        'lr': trial.suggest_float('lr', 1e-5, 1e-1, log=True),
+        'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
         'batch_size': trial.suggest_int('batch_size', 16, 128),
         'epochs': FLAGS.epochs,
         'loss_fn': trial.suggest_categorical('loss_fn', ['mse_loss', 'l1_loss', 'smooth_l1_loss']),
@@ -138,20 +145,6 @@ def objective(trial):
     }
 
     num_features = len(feature_names)
-    df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
-    if FLAGS.only_10min_plus:
-        df = df[df['planned'] > 10 * 60]
-    np_array = df.to_numpy()
-
-    feature_indices = get_feature_indices(df, feature_names)
-    target_index = get_planned_target_index(df)
-    X, y = np_array[:, feature_indices], np_array[:, target_index]
-    X = X.astype(np.float32)
-    y = y.astype(np.float32)
-
-    y = y / 60
-
-    train_dataloader, test_dataloader = create_dataloaders(X, y)
 
     model = nn_model(num_features, params['hl1'], params['hl2'], params['dropout'], params['activ'])
 
@@ -173,12 +166,12 @@ def objective(trial):
     else:
         sys.exit(f"Optimizer '{params['optimizer']}' not supported")
 
-    best_test_loss = float('inf')
+    best_val_loss = float('inf')
     patience_counter = 0
 
     for epoch in range(params['epochs']):
         train_loss = []
-        test_loss = []
+        val_loss = []
         custom_loss = dict.fromkeys(custom_loss, 0)
 
         model.train()
@@ -192,18 +185,18 @@ def objective(trial):
             calculate_custom_loss(pred.flatten(), y, "train")
 
         model.eval()
-        for X, y in test_dataloader:
+        for X, y in val_dataloader:
             with torch.no_grad():
                 pred = model(X)
                 loss = loss_fn(pred.flatten(), y)
-                test_loss.append(loss.item())
-                calculate_custom_loss(pred.flatten(), y, "test")
+                val_loss.append(loss.item())
+                calculate_custom_loss(pred.flatten(), y, "val")
 
         avg_train_loss = np.mean(train_loss)
-        avg_test_loss = np.mean(test_loss)
+        avg_val_loss = np.mean(val_loss)
 
-        if avg_test_loss < best_test_loss:
-            best_test_loss = avg_test_loss
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             patience_counter = 0
         else:
             patience_counter += 1
@@ -212,19 +205,45 @@ def objective(trial):
             print(f"Early stopping triggered after {epoch + 1} epochs")
             break
 
-        print(f"Epoch = {epoch}, Train_loss = {avg_train_loss:.2f}, Test Loss = {avg_test_loss:.5f}")
+        print(f"Epoch = {epoch}, Train_loss = {avg_train_loss:.2f}, Test Loss = {avg_val_loss:.5f}")
 
     ending_time = time.time()
     
     print(f"Objective took {ending_time - starting_time} seconds")
 
-    return avg_test_loss
+    return avg_val_loss
 
 def main(argv):
-    sampler = TPESampler(n_startup_trials=10)
+    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
+                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
+                     "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
+                     "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+    num_jobs = 400_000
+    read_all = True if num_jobs == 0 else False
+    
+    df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
+    if FLAGS.only_10min_plus:
+        df = df[df['planned'] > 10 * 60]
+    np_array = df.to_numpy()
+    
+    feature_indices = get_feature_indices(df, feature_names)
+    target_index = get_planned_target_index(df)
+    X, y = np_array[:, feature_indices], np_array[:, target_index]
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
+
+    y = y / 60
+
+    global train_dataloader
+    global test_dataloader
+    global val_dataloader
+    train_dataloader, test_dataloader, val_dataloader = create_dataloaders(X, y)
+    
+    
+    sampler = TPESampler(n_startup_trials=10)                      
     
     study = optuna.create_study(sampler=sampler)
-    study.optimize(objective, n_trials=100, n_jobs=4)
+    study.optimize(objective, n_trials=100)
 
     print("Number of finished trials: ", len(study.trials))
     print("Best trial:")
@@ -234,6 +253,11 @@ def main(argv):
     print("  Params: ")
     for key, value in trial.params.items():
         print("    {}: {}".format(key, value))
+        
+        
+    # TODO: MAKE AND TRAIN MODEL WITH BEST HYPERPARAMETERS, USE TEST DATA TO TEST
+    
+    
 
 if __name__ == '__main__':
     app.run(main)

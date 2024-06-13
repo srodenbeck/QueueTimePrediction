@@ -149,7 +149,8 @@ def calculate_queue_features(engine):
         "REQ_CPUS": 4,
         "REQ_MEM": 5,
         "REQ_NODES": 6,
-        "TIME_LIMIT_RAW": 7
+        "TIME_LIMIT_RAW": 7,
+        "PRIORITY": 8
     }
 
     # Columns: job_id, jobs_ahead_queue, cpus_ahead_queue, memory_ahead_queue, nodes_ahead_queue, time_limit_raw
@@ -230,15 +231,18 @@ def calculate_higher_priority_queue_features(engine):
 
     """
     # Read in dataframe
-    all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
+    print("Reading in dataframes")
+    all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible ", engine)
     df = pd.read_sql_query(
-        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_2021_2025_05_02 ORDER BY eligible",
+        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw, priority FROM jobs_2021_2025_05_02 ORDER BY eligible",
         engine)
     df['start_time'] = df['start_time'].apply(lambda x: x.timestamp()).astype('int64')
     df['end_time'] = df['end_time'].apply(lambda x: x.timestamp()).astype('int64')
     df['eligible'] = df['eligible'].apply(lambda x: x.timestamp()).astype('int64')
     np_array = df.to_numpy()
 
+    print("Dataframes successfully read into numpy arrays")
+    
     idx_dict = {
         "JOB_ID": 0,
         "ELIGIBLE": 1,
@@ -247,10 +251,11 @@ def calculate_higher_priority_queue_features(engine):
         "REQ_CPUS": 4,
         "REQ_MEM": 5,
         "REQ_NODES": 6,
-        "TIME_LIMIT_RAW": 7
+        "TIME_LIMIT_RAW": 7,
+        "PRIORITY": 8
     }
 
-    # Columns: job_id, jobs_ahead_queue, cpus_ahead_queue, memory_ahead_queue, nodes_ahead_queue, time_limit_raw
+    # Columns: job_id, jobs_ahead_queue_priority, cpus_ahead_queue_priority, memory_ahead_queue_priority, nodes_ahead_queue_priority, time_limit_raw_queue_priority
     queue_features = np.zeros((np_array.shape[0], 6))
 
     num_trees = 50
