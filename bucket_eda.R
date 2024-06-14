@@ -14,7 +14,7 @@ psql_con <- dbConnect(
 maria_con <- dbConnect(RMariaDB::MariaDB(),
                        user = 'dbadmin',
                        # CHANGE TO PASSWORD WHEN RUNNING
-                       password = 'Philster04!',
+                       password = 'HIDDEN :)',
                        dbname = 'glue2',
                        host = 'localhost',
                        port = 3306)
