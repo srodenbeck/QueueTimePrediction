@@ -364,7 +364,7 @@ def main(argv):
 
     # Graphing and getting R2 value of model pred vs actual
     print("Graphing pred vs actual and calculating pearsons r")
-    torch.eval()
+    model.eval()
     y_pred = []
     y_actual= []
     test_loss = []
