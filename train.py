@@ -57,7 +57,11 @@ custom_loss = {
     "train_binary_10min_correct":  0,
     "train_binary_10min_total":  0,
     "test_binary_10min_correct":  0,
-    "test_binary_10min_total":  0
+    "test_binary_10min_total":  0,
+    "val_within_10min_correct": 0,
+    "val_within_10min_total": 0,
+    "val_binary_10min_correct": 0,
+    "val_binary_10min_total": 0
 }
 
 
@@ -131,15 +135,21 @@ def create_dataloaders(X, y):
     if FLAGS.balance_dataset:
         X, y = classify_train.balance_dataset(X, y)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8,
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.9,
                                                         shuffle=FLAGS.shuffle,
                                                         random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, train_size=0.9,
+                                                      shuffle=FLAGS.shuffle,
+                                                      random_state=42)
+    
     if FLAGS.transform:
         # X_train, X_test = transformations.scale_min_max(X_train, X_test)
-        X_train, X_test = transformations.scale_log(X_train, X_test)
+        _, X_test = transformations.scale_log(X_train, X_test)
+        X_train, X_val = transformations.scale_log(X_train, X_val)
 
     if FLAGS.transform_target:
-        y_train, y_test = transformations.scale_log(y_train, y_test)
+        _, y_test = transformations.scale_log(y_train, y_test)
+        y_train, y_val = transformations.scale_log(y_train, y_val)
 
     # for i in range(X_train.shape[1]):
         # print(X_train[:, i])
@@ -154,17 +164,22 @@ def create_dataloaders(X, y):
     y_train_to_tensor = torch.from_numpy(y_train).to(torch.float32)
     x_test_to_tensor = torch.from_numpy(X_test).to(torch.float32)
     y_test_to_tensor = torch.from_numpy(y_test).to(torch.float32)
+    x_val_to_tensor = torch.from_numpy(X_val).to(torch.float32)
+    y_val_to_tensor = torch.from_numpy(y_val).to(torch.float32)
 
     # Second step: Creating TensorDataset for Dataloader
     train_dataset = TensorDataset(x_train_to_tensor, y_train_to_tensor)
     test_dataset = TensorDataset(x_test_to_tensor, y_test_to_tensor)
+    val_dataset = TensorDataset(x_val_to_tensor, y_val_to_tensor)
 
     train_dataloader = DataLoader(train_dataset, batch_size=FLAGS.batch_size)
     test_dataloader = DataLoader(test_dataset, batch_size=FLAGS.batch_size)
-    return train_dataloader, test_dataloader
+    val_dataloader = DataLoader(val_dataset, batch_size=FLAGS.batch_size)
+    
+    return train_dataloader, test_dataloader, val_dataloader
 
 
-def calculate_custom_loss(pred, y, train_or_test):
+def calculate_custom_loss(pred, y, train_test_val):
     """
     calculate_custom_loss()
 
@@ -177,9 +192,9 @@ def calculate_custom_loss(pred, y, train_or_test):
     pred : float
         Predicted value from the model.
     y : float
-        DESCRIPTION.
-    train_or_test : TYPE
-        Actual value which model attempts to predict.
+        Actual value which model attempts to predict..
+    train_test_val : TYPE
+        What part of the data is passed in.
 
     Returns
     -------
@@ -191,16 +206,16 @@ def calculate_custom_loss(pred, y, train_or_test):
     sub_tensor = torch.sub(pred.flatten(), y)
     binary_within = torch.where(torch.abs(sub_tensor) < 10, 1, 0)
     pred[pred < 0] = 0
-    custom_loss[f"{train_or_test}_within_10min_total"] += binary_within.shape[0]
-    custom_loss[f"{train_or_test}_within_10min_correct"] += binary_within.sum().item()
+    custom_loss[f"{train_test_val}_within_10min_total"] += binary_within.shape[0]
+    custom_loss[f"{train_test_val}_within_10min_correct"] += binary_within.sum().item()
 
     # Calculating loss in regards to number of correct binary classifications,
     # splitting data at 10 minutes
     y_binary = torch.where(y > 10, 1, 0)
     pred_binary = torch.where(pred.flatten() > 10, 1, 0)
     binary_10min = torch.where(y_binary == pred_binary, 1, 0)
-    custom_loss[f"{train_or_test}_binary_10min_total"] += binary_10min.shape[0]
-    custom_loss[f"{train_or_test}_binary_10min_correct"] += binary_10min.sum().item()
+    custom_loss[f"{train_test_val}_binary_10min_total"] += binary_10min.shape[0]
+    custom_loss[f"{train_test_val}_binary_10min_correct"] += binary_10min.sum().item()
 
 def main(argv):
     global custom_loss
@@ -262,7 +277,7 @@ def main(argv):
     y = y / 60
 
     # Make dataloaders from arrays
-    train_dataloader, test_dataloader = create_dataloaders(X, y)
+    train_dataloader, test_dataloader, val_dataloader = create_dataloaders(X, y)
 
     # Create model
     model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout, FLAGS.activ)
@@ -289,14 +304,14 @@ def main(argv):
 
     # Run training loop
     train_loss_by_epoch = []
-    test_loss_by_epoch = []
+    val_loss_by_epoch = []
 
-    best_test_loss = float('inf')
+    best_val_loss = float('inf')
     patience_counter = 0
 
     for epoch in range(FLAGS.epochs):
         train_loss = []
-        test_loss = []
+        val_loss = []
         custom_loss = dict.fromkeys(custom_loss, 0)
 
         # Training
@@ -312,21 +327,21 @@ def main(argv):
 
         # Evaluation/Validation
         model.eval()
-        for X, y in test_dataloader:
+        for X, y in val_dataloader:
             with torch.no_grad():
                 pred = model(X)
                 loss = loss_fn(pred.flatten(), y)
-                test_loss.append(loss.item())
-                calculate_custom_loss(pred.flatten(), y, "test")
+                val_loss.append(loss.item())
+                calculate_custom_loss(pred.flatten(), y, "val")
                 if epoch == FLAGS.epochs - 1:
                     for i in range(y.shape[0]):
                         print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
 
         avg_train_loss = np.mean(train_loss)
-        avg_test_loss = np.mean(test_loss)
+        avg_val_loss = np.mean(val_loss)
 
-        if avg_test_loss < best_test_loss:
-            best_test_loss = avg_test_loss
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             patience_counter = 0
         else:
             patience_counter += 1
@@ -337,26 +352,34 @@ def main(argv):
                 print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
             break
 
-        print(f"Epoch = {epoch}, Train_loss = {avg_train_loss:.2f}, Test Loss = {avg_test_loss:.5f}")
+        print(f"Epoch = {epoch}, Train_loss = {avg_train_loss:.2f}, Validation Loss = {avg_val_loss:.5f}")
         train_loss_by_epoch.append(avg_train_loss)
-        test_loss_by_epoch.append(avg_test_loss)
+        val_loss_by_epoch.append(avg_val_loss)
         run["train/loss"].append(avg_train_loss)
-        run["valid/loss"].append(avg_test_loss)
+        run["valid/loss"].append(avg_val_loss)
         run["train/within_10min_acc"].append(custom_loss["train_within_10min_correct"] / custom_loss["train_within_10min_total"] * 100)
-        run["valid/within_10min_acc"].append(custom_loss["test_within_10min_correct"] / custom_loss["test_within_10min_total"] * 100)
+        run["valid/within_10min_acc"].append(custom_loss["val_within_10min_correct"] / custom_loss["val_within_10min_total"] * 100)
         run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"] * 100)
-        run["valid/binary_10min_acc"].append(custom_loss["test_binary_10min_correct"] / custom_loss["test_binary_10min_total"] * 100)
+        run["valid/binary_10min_acc"].append(custom_loss["val_binary_10min_correct"] / custom_loss["val_binary_10min_total"] * 100)
 
     # Graphing and getting R2 value of model pred vs actual
     print("Graphing pred vs actual and calculating pearsons r")
     torch.eval()
     y_pred = []
     y_actual= []
+    test_loss = []
     with torch.no_grad():
         for X, y in test_dataloader:
             pred = model(X)
+            loss = loss_fn(pred.flatten(), y)
+            test_loss.append(loss.item())
+            calculate_custom_loss(pred.flatten(), y, "test")
+            
             y_pred.extend(pred.flatten())
             y_actual.extend(y)
+    avg_test_loss = np.mean(np.mean(test_loss))
+    print(f"Average test loss of {avg_test_loss}")
+    
     r_value = pearsonr(y_pred, y_actual)
     print("pearson's r: ", r_value)
     plt.scatter(y_pred, y_actual)

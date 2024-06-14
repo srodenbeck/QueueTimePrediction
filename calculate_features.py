@@ -111,7 +111,7 @@ def calculate_running_features(engine):
     all_df.to_sql('jobs', engine, if_exists='replace', index=False)
 
 
-def calculate_queue_features(engine):
+def calculate_queue_features():
     """
     calculate_queue_features()
 
@@ -123,14 +123,14 @@ def calculate_queue_features(engine):
 
     Parameters
     ----------
-    engine : SQLALCHEMY ENGINE
-        Instance of sqlalchemy engine to access postgres database.
+    None.
 
     Returns
     -------
     None.
 
     """
+    engine = read_db.create_engine()
     # Read in dataframe
     all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible", engine)
     df = pd.read_sql_query(
@@ -152,6 +152,8 @@ def calculate_queue_features(engine):
         "TIME_LIMIT_RAW": 7,
         "PRIORITY": 8
     }
+    
+    engine.dispose()
 
     # Columns: job_id, jobs_ahead_queue, cpus_ahead_queue, memory_ahead_queue, nodes_ahead_queue, time_limit_raw
     queue_features = np.zeros((np_array.shape[0], 6))
@@ -209,7 +211,7 @@ def calculate_queue_features(engine):
     all_df.update(new_df)
     all_df.to_sql('jobs_queue_only', engine, if_exists='replace', index=False)
 
-def calculate_higher_priority_queue_features(engine):
+def calculate_higher_priority_queue_features():
     """
     calculate_higher_priority_queue_features()
 
@@ -222,14 +224,14 @@ def calculate_higher_priority_queue_features(engine):
 
     Parameters
     ----------
-    engine : SQLALCHEMY ENGINE
-        Instance of sqlalchemy engine to access postgres database.
-
+    None.
+    
     Returns
     -------
     None.
 
     """
+    engine = read_db.create_engine()
     # Read in dataframe
     print("Reading in dataframes")
     all_df = pd.read_sql_query("SELECT * FROM jobs_2021_2025_05_02 ORDER BY eligible ", engine)
@@ -257,7 +259,7 @@ def calculate_higher_priority_queue_features(engine):
 
     # Columns: job_id, jobs_ahead_queue_priority, cpus_ahead_queue_priority, memory_ahead_queue_priority, nodes_ahead_queue_priority, time_limit_raw_queue_priority
     queue_features = np.zeros((np_array.shape[0], 6))
-
+    engine.dispose()
     num_trees = 50
     tree_size = 100000
     tree_overlap = 10000
@@ -304,6 +306,8 @@ def calculate_higher_priority_queue_features(engine):
         if count == tree_size and ((np_array.shape[0] - job_idx) > (3 * tree_size)):
             tree_idx += 1
             count = 0
+    
+    engine = read_db.create_engine()
 
     # Update dataframe from results and upload to database
     new_df = pd.DataFrame(
@@ -319,4 +323,4 @@ if __name__ == '__main__':
     engine = read_db.create_engine()
     # calculate_running_features(engine)
     # calculate_queue_features(engine)
-    calculate_higher_priority_queue_features(engine)
+    calculate_higher_priority_queue_features()
