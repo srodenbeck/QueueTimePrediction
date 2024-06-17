@@ -256,4 +256,7 @@ cython_debug/
 #.idea/
 
 # My config file
-config.py
+config_file.py
+
+.neptune/
+data/
