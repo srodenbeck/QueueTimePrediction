@@ -38,7 +38,7 @@ flags.DEFINE_enum('activ', 'relu', ['relu', 'leaky_relu', 'elu'], 'Activation fu
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
 flags.DEFINE_boolean('only_10min_plus', True, 'Only include jobs with planned longer than 10 mintues')
 flags.DEFINE_boolean('transform_target', False, 'Whether or not to transform the planned variable')
-flags.DEFINE_boolean('use_early_stopping', True, 'Whether or not to use early stopping')
+flags.DEFINE_boolean('use_early_stopping', False, 'Whether or not to use early stopping')
 flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
 
 flags.DEFINE_boolean('balance_dataset', False, 'Whether or not to use balance_dataset()')
@@ -232,8 +232,9 @@ def main(argv):
                      "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
                      "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
                      "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+                     # "partition", "qos"]
     num_features = len(feature_names)
-    num_jobs = 4_000_000
+    num_jobs = 0
     read_all = True if num_jobs == 0 else False
 
     # Specified parameters to upload to neptune
@@ -255,9 +256,32 @@ def main(argv):
 
     num_features = len(feature_names)
     print("Reading from database")
-    df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
+    df = read_db.read_to_df(table="jobs_all_2", read_all=read_all, jobs=num_jobs)
     print("Finished reading database")
     
+    transformed_cols = []
+    # Feature manipulation for categorical features if needed
+    if "account" in feature_names:
+        df['account'] = df['account'].apply(transformations.accountToNormUsage)
+        transformed_cols.append("account")
+    if "partition" in feature_names: 
+        df = transformations.make_one_hot(df, "partition")
+        transformed_cols.append("partition")
+    if "qos" in feature_names:
+        df = transformations.make_one_hot(df, "qos", new_col_limit=4)
+        transformed_cols.append("qos")
+    
+    features = []
+    for col_name in df.columns:
+        if col_name in transformed_cols:
+            continue
+        for name in feature_names:
+            if name in col_name:
+                features.append(col_name)
+                break
+    feature_names = features
+    num_features = len(feature_names)
+        
     # Transform data if only_10min_plus flag is on, discards data with planned
     # less than 10 minutes
     if FLAGS.only_10min_plus:
@@ -270,6 +294,7 @@ def main(argv):
     feature_indices = get_feature_indices(df, feature_names)
     target_index = get_planned_target_index(df)
     X, y = np_array[:, feature_indices], np_array[:, target_index]
+    print(X[0, :])
     X = X.astype(np.float32)
     y = y.astype(np.float32)
 

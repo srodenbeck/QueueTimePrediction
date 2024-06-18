@@ -12,11 +12,14 @@ import read_db
 
 accountUsageDict = dict()
 
-with open('normUsageDict.csv', 'r') as file:
-    accountUsageDict['root'] = 1.0
-    reader = csv.reader(file, delimiter='|')
-    for line in list(reader)[1:]:
-        accountUsageDict[line[0]] = float(line[1])
+try:
+    with open('normUsageDict.csv', 'r') as file:
+        accountUsageDict['root'] = 1.0
+        reader = csv.reader(file, delimiter='|')
+        for line in list(reader)[1:]:
+            accountUsageDict[line[0]] = float(line[1])
+except:
+    pass
 
 
 def normalize(train_data, test_data):
@@ -227,9 +230,11 @@ def accountToNormUsage(account: str):
     """
     if account in accountUsageDict.keys():
         return accountUsageDict[account]
+    print(account)
     return 0.0
 
-def make_one_hot(df, col_name):
+
+def make_one_hot(df, col_name, new_col_limit=0):
     """
     make_one_hot
     
@@ -243,6 +248,9 @@ def make_one_hot(df, col_name):
         Dataframe containing column matching col_name.
     col_name : STRING
         String representing the name of the column to convert to one hot encoding.
+    new_col_limit : INT
+        Number of one hot columns to create not including other. If new_col_limit
+        is 0, includes all columns and does not create an other column.
 
     Returns
     -------
@@ -250,7 +258,17 @@ def make_one_hot(df, col_name):
         Updated dataframe containing one hot encoded values.
 
     """
-    one_hot = pd.get_dummies(df[col_name], drop_first=True)
+    # TODO: Potentially change all values of 'dmachi' in qos to 'other'
+    # as the last dmachi was in 2023-08-17. Outdated feature
+    value_counts = df[col_name].value_counts()
+    if new_col_limit:
+        top_categories = value_counts.nlargest(new_col_limit).index.tolist()
+    else:
+        top_categories = value_counts.index.tolist()
+    other_name = 'other'
+    df[col_name] = df[col_name].apply(lambda x: x if x in top_categories else other_name)
+    one_hot = pd.get_dummies(df[col_name])
+    one_hot = one_hot.add_prefix(col_name + "_")
     df = df.join(one_hot)
     df = df.replace({True: 1, False: 0})
     return df
@@ -258,6 +276,11 @@ def make_one_hot(df, col_name):
     
     
 
-
-
+if __name__ == "__main__":
+    # Just used to test some functions
+    
+    df = read_db.read_to_df("jobs_all_2", False, 100000)
+    df = make_one_hot(df, "partition")
+    df = make_one_hot(df, "qos", 4)
+    print(df.columns)
 
