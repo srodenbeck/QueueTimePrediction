@@ -5,6 +5,18 @@ import scipy.stats as stats
 from scipy.special import inv_boxcox
 from sklearn.preprocessing import MinMaxScaler
 import numpy as np
+import csv
+import pandas as pd
+import read_db
+
+
+accountUsageDict = dict()
+
+with open('normUsageDict.csv', 'r') as file:
+    accountUsageDict['root'] = 1.0
+    reader = csv.reader(file, delimiter='|')
+    for line in list(reader)[1:]:
+        accountUsageDict[line[0]] = float(line[1])
 
 
 def normalize(train_data, test_data):
@@ -194,3 +206,58 @@ def scale_log(X_train, X_test):
     X_test += 1
     return np.log(X_train), np.log(X_test)
     
+
+def accountToNormUsage(account: str):
+    """
+    accountToNormUsage
+    
+    Should be used with df apply
+    
+    Ex: df.apply(accountToNormUsage)
+
+    Parameters
+    ----------
+    account : str
+        String representation of account.
+
+    Returns
+    -------
+    Normalized value representing the proprotion of resources used by said account.
+
+    """
+    if account in accountUsageDict.keys():
+        return accountUsageDict[account]
+    return 0.0
+
+def make_one_hot(df, col_name):
+    """
+    make_one_hot
+    
+    Converts the values within the column matching col_name to onehot encoded values,
+    drops the original column, and appends the new one hot columns to the
+    dataframe before returning it.
+
+    Parameters
+    ----------
+    df : DATAFRAME
+        Dataframe containing column matching col_name.
+    col_name : STRING
+        String representing the name of the column to convert to one hot encoding.
+
+    Returns
+    -------
+    df : DATAFRAME
+        Updated dataframe containing one hot encoded values.
+
+    """
+    one_hot = pd.get_dummies(df[col_name], drop_first=True)
+    df = df.join(one_hot)
+    df = df.replace({True: 1, False: 0})
+    return df
+    
+    
+    
+
+
+
+
