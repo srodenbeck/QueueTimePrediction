@@ -12,7 +12,7 @@ register_adapter(np.int64, AsIs)
 def sqlalc(df, db_config):
     engine = sqlalchemy.create_engine(
         f'postgresql+psycopg2://{db_config["user"]}:{db_config["password"]}@{db_config["host"]}:{db_config["port"]}/{db_config["dbname"]}')
-    df.to_sql('jobs_2021_2025_05_02', engine, if_exists='append', index=False)
+    df.to_sql("jobs_2024_05_02_1mil", engine, if_exists='append', index=False)
 
 def transform_df(df):
     df = df[["JobID", "UID", "Account", "State", "Partition", "TimelimitRaw", "Submit", "Eligible", "Elapsed", "Planned", "Start",
@@ -52,10 +52,6 @@ def transform_df(df):
 
 
 def create_enum(conn):
-    command = """DROP TYPE IF EXISTS partition_enum CASCADE"""
-    with conn.cursor() as cursor: cursor.execute(command)
-    command = """DROP TYPE IF EXISTS state_enum CASCADE"""
-    with conn.cursor() as cursor: cursor.execute(command)
     command = """CREATE TYPE partition_enum AS ENUM ('standard', 'shared', 'wholenode', 'wide', 'gpu', 'highmem', 
     'azure')"""
     with conn.cursor() as cursor: cursor.execute(command)
@@ -64,11 +60,11 @@ def create_enum(conn):
     with conn.cursor() as cursor: cursor.execute(command)
 
 def create_table(conn):
-    command = """DROP TABLE IF EXISTS jobs_2021_2025_05_02"""
+    command = """DROP TABLE IF EXISTS jobs_2024_05_02_1mil"""
     with conn.cursor() as cursor: cursor.execute(command)
 
     command = """
-                CREATE TABLE IF NOT EXISTS jobs_2021_2025_05_02 (
+                CREATE TABLE IF NOT EXISTS jobs_2024_05_02_1mil (
                 job_id INTEGER PRIMARY KEY,
                 user_id INTEGER,
                 account VARCHAR(255),
@@ -96,7 +92,17 @@ def create_table(conn):
                 cpus_running INTEGER,
                 memory_running REAL,
                 nodes_running INTEGER,
-                time_limit_running INTEGER
+                time_limit_running INTEGER,
+                par_jobs_ahead_queue INTEGER,
+                par_cpus_ahead_queue INTEGER,
+                par_memory_ahead_queue REAL,
+                par_nodes_ahead_queue INTEGER,
+                par_time_limit_ahead_queue INTEGER,
+                par_jobs_running INTEGER,
+                par_cpus_running INTEGER,
+                par_memory_running REAL,
+                par_nodes_running INTEGER,
+                par_time_limit_running INTEGER
                 )"""
     with conn.cursor() as cursor: cursor.execute(command)
 
@@ -104,7 +110,7 @@ def initialize_db(db_config):
     with psycopg2.connect(dbname=db_config["dbname"], user=db_config["user"], password=db_config["password"], host=db_config["host"],
                           port=db_config["port"]) as conn:
         print("Connected to database")
-        create_enum(conn)
+        # create_enum(conn)
         create_table(conn)
 
 
@@ -119,5 +125,6 @@ if __name__ == "__main__":
     }
     initialize_db(db_config)
     df = pd.read_csv(csv_path, delimiter="|")
+    # df = df.iloc[-1_000_000:]
     df = transform_df(df)
     sqlalc(df, db_config)
