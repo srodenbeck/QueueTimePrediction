@@ -199,12 +199,26 @@ def scale_min_max(X_train, X_test):
     X_test = scaler.transform(X_test)
     return X_train, X_test
 
+def scale_min_max_test(X_test):
+    scaler = MinMaxScaler()
+    scaler.fit(X_test)
+    X_test = scaler.transform(X_test)
+    return X_test
+
+
 def scale_log(X_train, X_test):
     # if min(X_train) == 0:
     X_train += 1
     # if min(X_test) == 0:
     X_test += 1
     return np.log(X_train), np.log(X_test)
+
+
+def scale_log_test(X_test):
+    # if min(X_test) == 0:
+    X_test += 1
+    return np.log(X_test)
+
     
 
 def accountToNormUsage(account: str):

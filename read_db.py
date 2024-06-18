@@ -31,7 +31,7 @@ def create_engine():
     return engine
 
 
-def read_to_df(table, read_all=True, jobs=10000):
+def read_to_df(table, read_all=True, jobs=10000, order_by="submit"):
     """
        read_to_np()
 
@@ -51,8 +51,15 @@ def read_to_df(table, read_all=True, jobs=10000):
 
     """
     engine = create_engine()
-    if read_all:
-        df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18'", engine)
-    else:
-        df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY submit DESC LIMIT {jobs}", engine)
+    if order_by == "submit":
+        if read_all:
+            df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18'", engine)
+        else:
+            df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY submit DESC LIMIT {jobs}", engine)
+    elif order_by == "random":
+        if read_all:
+            df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY random()", engine)
+        else:
+            df = pd.read_sql_query(
+                f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY random() DESC LIMIT {jobs}", engine)
     return df

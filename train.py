@@ -386,10 +386,6 @@ def main(argv):
     plt.xlabel("y predicted")
     plt.ylabel("y")
     plt.show()
-
-    
-    
-
     run.stop()
 
 if __name__ == '__main__':
