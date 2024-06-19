@@ -31,7 +31,7 @@ def create_engine():
     return engine
 
 
-def read_to_df(table, read_all=True, jobs=10000, order_by="submit"):
+def read_to_df(table, read_all=True, jobs=10000, order_by="submit", condense_same_times=False):
     """
        read_to_np()
 
@@ -51,15 +51,27 @@ def read_to_df(table, read_all=True, jobs=10000, order_by="submit"):
 
     """
     engine = create_engine()
-    if order_by == "submit":
-        if read_all:
-            df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18'", engine)
-        else:
-            df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY submit DESC LIMIT {jobs}", engine)
-    elif order_by == "random":
-        if read_all:
-            df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY random()", engine)
-        else:
-            df = pd.read_sql_query(
-                f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY random() DESC LIMIT {jobs}", engine)
+    if condense_same_times:
+        if order_by == "submit":
+            if read_all:
+                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table} WHERE submit <= '2024-04-18') subquery WHERE account <> prev_account OR prev_account IS NULL", engine)
+            else:
+                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table} WHERE submit <= '2024-04-18') subquery WHERE account <> prev_account OR prev_account IS NULL LIMIT {jobs}", engine)
+        elif order_by == "random":
+            if read_all:
+                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table} WHERE submit <= '2024-04-18') subquery WHERE account <> prev_account OR prev_account IS NULL ORDER BY random()", engine)
+            else:
+                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table} WHERE submit <= '2024-04-18') subquery WHERE account <> prev_account OR prev_account IS NULL ORDER BY random() LIMIT {jobs}", engine)
+    else:
+        if order_by == "submit":
+            if read_all:
+                df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18'", engine)
+            else:
+                df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY submit DESC LIMIT {jobs}", engine)
+        elif order_by == "random":
+            if read_all:
+                df = pd.read_sql_query(f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY random()", engine)
+            else:
+                df = pd.read_sql_query(
+                    f"SELECT * FROM {table} WHERE submit <= '2024-04-18' ORDER BY random() DESC LIMIT {jobs}", engine)
     return df
