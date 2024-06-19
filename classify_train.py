@@ -178,6 +178,29 @@ def feature_options(features):
         return ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
                 "time_limit_ahead_queue",
                 "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes"]
+    elif features == "qos":
+        out = []
+        for feature in features:
+            if "qos_" in feature:
+                out.append(feature)
+        return out
+    elif features == "partition":
+        out = [] 
+        for feature in features:
+            if "partition_" in feature:
+                out.append(feature)
+        return out
+    elif features == "all_more":
+        out = ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
+                "time_limit_ahead_queue", "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
+                "jobs_running", "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+        for feature in features:
+            if "qos_" in feature:
+                out.append(feature)
+        for feature in features:
+            if "partition_" in feature:
+                out.append(feature)
+        return out
 
 def train_model(trial, is_ret_model=False):
     X, y_one_hot, feature_mapping_dict = gl_X, gl_y_one_hot, gl_feature_mapping_dict
@@ -297,6 +320,10 @@ def load_data():
     read_all = True if num_jobs == 0 else False
     gl_df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs, order_by="random")
     ten_perc = int(num_jobs / 10)
+    
+    # Adding support for one hot
+    gl_df = transformations.make_one_hot(gl_df, "partition")
+    gl_df = transformations.make_one_hot(gl_df, "qos", 3)
 
     y = gl_df["planned"].to_numpy()
     y_test_planned = y[-ten_perc:]
