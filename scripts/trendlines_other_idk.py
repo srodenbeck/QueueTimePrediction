@@ -62,7 +62,7 @@ if __name__=="__main__":
     target = 'planned'
     
     # Path to where images will be stored
-    path_root = "graphs/TrendLines/"
+    path_root = "../graphs/TrendLines/"
     path_end = "_5_minute_plus.png"
     
     # y = df['PlannedRaw']

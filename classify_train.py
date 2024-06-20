@@ -35,14 +35,14 @@ gl_y_one_hot = None
 gl_feature_mapping_dict = None
 
 gl_hyp_param = {
-    "transformations": ["none", "log", "min_max"],
+    "transformations": ["log", "min_max"],
     "n_layers_low": 2,
     "n_layers_high": 3,
     "layer_size_low": 16,
     "layer_size_high": 128,
     "dropout_low": -1,
     "dropout_high": -1,
-    "features": ["austin_hypo", "partition", "qos", "request", "queue_request", "memory"]
+    "features": ["austin_hypo", "partition", "request", "queue_request"]
 }
 
 
@@ -204,7 +204,7 @@ def feature_options(features):
                 out.append(feature)
         return out
     elif features == "austin_hypo":
-        out = ["priority", "req_cpus", "req_mem", "user_id"]
+        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue"]
         for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
@@ -327,7 +327,7 @@ def load_data():
     global gl_feature_mapping_dict
     num_jobs = FLAGS.n_jobs
     read_all = True if num_jobs == 0 else False
-    gl_df = read_db.read_to_df(table="jobs_everything", read_all=read_all, jobs=num_jobs, order_by="random")
+    gl_df = read_db.read_to_df(table="jobs_everything", read_all=read_all, jobs=num_jobs, order_by="random", condense_same_times=False)
     ten_perc = int(num_jobs / 10)
     
     # Adding support for one hot
