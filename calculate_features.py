@@ -338,8 +338,92 @@ def calculate_higher_priority_queue_features():
     engine.dispose()
 
 
+
+def calculate_user_features():
+    engine = read_db.create_engine()
+    # Read in dataframe
+    all_df = pd.read_sql_query("SELECT * FROM jobs_everything ORDER BY eligible", engine)
+    df = pd.read_sql_query(
+        "SELECT job_id, user_id, eligible, req_cpus, req_mem, req_nodes, time_limit_raw FROM jobs_everything ORDER BY eligible",
+        engine)
+    engine.dispose()
+
+    df['eligible'] = df['eligible'].apply(lambda x: x.timestamp()).astype('int64')
+    np_array = df.to_numpy()
+    idx_dict = {
+        "JOB_ID": 0,
+        "USER_ID": 1,
+        "ELIGIBLE": 2,
+        "REQ_CPUS": 3,
+        "REQ_MEM": 4,
+        "REQ_NODES": 5,
+        "TIME_LIMIT_RAW": 6
+    }
+
+    usr_idx = {
+        "ELIGIBLE": 0,
+        "COUNT": 1,
+        "REQ_CPUS": 2,
+        "REQ_MEM": 3,
+        "REQ_NODES": 4,
+        "TIME_LIMIT_RAW": 5
+    }
+
+    user_features = np.zeros((np_array.shape[0], 6))
+    user_dict = {}
+    total_user_dict = {}
+
+    for job_idx in tqdm(range(np_array.shape[0])):
+        user_dict[np_array[job_idx, idx_dict["USER_ID"]]] = []
+    for job_idx in tqdm(range(np_array.shape[0])):
+        total_user_dict[np_array[job_idx, idx_dict["USER_ID"]]] = [None, 0, 0, 0.0, 0, 0]
+
+    for job_idx in tqdm(range(np_array.shape[0])):
+        user_id = np_array[job_idx, idx_dict["USER_ID"]]
+        eligible = np_array[job_idx, idx_dict["ELIGIBLE"]]
+        user_features[job_idx, 0] = np_array[job_idx, idx_dict["JOB_ID"]]
+        user_features[job_idx, 1] = total_user_dict[user_id][usr_idx["COUNT"]]
+        user_features[job_idx, 2] = total_user_dict[user_id][usr_idx["REQ_CPUS"]]
+        user_features[job_idx, 3] = total_user_dict[user_id][usr_idx["REQ_MEM"]]
+        user_features[job_idx, 4] = total_user_dict[user_id][usr_idx["REQ_NODES"]]
+        user_features[job_idx, 5] = total_user_dict[user_id][usr_idx["TIME_LIMIT_RAW"]]
+
+        while user_dict[user_id] and eligible - user_dict[user_id][0][0] > (24 * 3600):
+            total_user_dict[user_id][usr_idx["COUNT"]] -= 1
+            total_user_dict[user_id][usr_idx["REQ_CPUS"]] -= user_dict[user_id][0][usr_idx["REQ_CPUS"]]
+            total_user_dict[user_id][usr_idx["REQ_MEM"]] -= user_dict[user_id][0][usr_idx["REQ_MEM"]]
+            total_user_dict[user_id][usr_idx["REQ_NODES"]] -= user_dict[user_id][0][usr_idx["REQ_NODES"]]
+            total_user_dict[user_id][usr_idx["TIME_LIMIT_RAW"]] -= user_dict[user_id][0][usr_idx["TIME_LIMIT_RAW"]]
+            user_dict[user_id].pop(0)
+
+        user_dict[user_id].append([eligible,
+                                   0,
+                                   np_array[job_idx, idx_dict["REQ_CPUS"]],
+                                   np_array[job_idx, idx_dict["REQ_MEM"]],
+                                   np_array[job_idx, idx_dict["REQ_NODES"]],
+                                   np_array[job_idx, idx_dict["TIME_LIMIT_RAW"]]])
+
+        total_user_dict[user_id][usr_idx["COUNT"]] += 1
+        total_user_dict[user_id][usr_idx["REQ_CPUS"]] += np_array[job_idx, idx_dict["REQ_CPUS"]]
+        total_user_dict[user_id][usr_idx["REQ_MEM"]] += np_array[job_idx, idx_dict["REQ_MEM"]]
+        total_user_dict[user_id][usr_idx["REQ_NODES"]] += np_array[job_idx, idx_dict["REQ_NODES"]]
+        total_user_dict[user_id][usr_idx["TIME_LIMIT_RAW"]] += np_array[job_idx, idx_dict["TIME_LIMIT_RAW"]]
+
+    new_df = pd.DataFrame(
+        {"job_id": user_features[:, 0].astype(np.uint32),
+         "user_jobs_past_day": user_features[:, 1].astype(np.uint32),
+         "user_cpus_past_day": user_features[:, 2].astype(np.uint32),
+         "user_memory_past_day": user_features[:, 3],
+         "user_nodes_past_day": user_features[:, 4].astype(np.uint32),
+         "user_time_limit_past_day": user_features[:, 5].astype(np.uint32)})
+    all_df.update(new_df)
+    engine = read_db.create_engine()
+    all_df.to_sql('jobs_everything_2', engine, if_exists='replace', index=False)
+    engine.dispose()
+
+
 if __name__ == '__main__':
-    # engine = read_db.create_engine()
-    calculate_running_features()
-    calculate_queue_features()
-    calculate_higher_priority_queue_features()
+    # calculate_running_features()
+    # calculate_queue_features()
+    # calculate_higher_priority_queue_features()
+    calculate_user_features()

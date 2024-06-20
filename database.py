@@ -102,7 +102,17 @@ def create_table(conn):
                 par_cpus_running INTEGER,
                 par_memory_running REAL,
                 par_nodes_running INTEGER,
-                par_time_limit_running INTEGER
+                par_time_limit_running INTEGER,
+                jobs_ahead_queue_priority INTEGER,
+                cpus_ahead_queue_priority INTEGER,
+                memory_ahead_queue_priority REAL,
+                nodes_ahead_queue_priority INTEGER,
+                time_limit_ahead_queue_priority INTEGER,
+                user_jobs_past_day INTEGER,
+                user_cpus_past_day INTEGER,
+                user_memory_past_day INTEGER,
+                user_nodes_past_day INTEGER,
+                user_time_limit_past_day INTEGER
                 )"""
     with conn.cursor() as cursor: cursor.execute(command)
 
