@@ -13,6 +13,7 @@ import transformations
 import imblearn.over_sampling
 import optuna
 from optuna.trial import TrialState
+import pandas as pd
 
 import config_file
 import read_db
@@ -23,8 +24,9 @@ flags.DEFINE_boolean('shuffle', True, 'Shuffle training/validation set')
 flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
 flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
 flags.DEFINE_integer('n_jobs', 100_000, 'Number of jobs to run on')
-flags.DEFINE_integer('epochs', 40, 'Number of epochs')
+flags.DEFINE_integer('epochs', 50, 'Number of epochs')
 flags.DEFINE_float('lr', 0.001, 'Learning rate')
+flags.DEFINE_enum('activ_fn', "leaky_relu", ['leaky_relu', 'relu'], 'Activation Function')
 FLAGS = flags.FLAGS
 
 gl_df = None
@@ -33,15 +35,14 @@ gl_y_one_hot = None
 gl_feature_mapping_dict = None
 
 gl_hyp_param = {
-    "transformations": ["none", "log", "min_max"],
-    "n_layers_low": 1,
+    "transformations": ["log", "min_max"],
+    "n_layers_low": 2,
     "n_layers_high": 3,
     "layer_size_low": 16,
-    "layer_size_high": 100,
-    "dropout_low": 0.05,
-    "dropout_high": 0.40,
-    "activ_fn": ["relu", "leaky_relu"],
-    "features": ["queue", "running", "request", "all", "queue_request"]
+    "layer_size_high": 128,
+    "dropout_low": -1,
+    "dropout_high": -1,
+    "features": ["austin_hypo", "partition", "request", "queue_request"]
 }
 
 
@@ -138,7 +139,7 @@ def model_performance(model, X, y):
 def define_model(trial, num_features):
     in_features = num_features
     n_layers = trial.suggest_int("n_layers", gl_hyp_param["n_layers_low"], gl_hyp_param["n_layers_high"])
-    activ_fn = trial.suggest_categorical("activ_fn", gl_hyp_param["activ_fn"])
+    activ_fn = FLAGS.activ_fn
     if activ_fn == "relu":
         activ_fn = nn.ReLU()
     elif activ_fn == "leaky_relu":
@@ -149,7 +150,8 @@ def define_model(trial, num_features):
                                          gl_hyp_param["layer_size_high"])
         layers.append(nn.Linear(in_features, out_features))
         layers.append(activ_fn)
-        p = trial.suggest_float("dropout_l{}".format(i), gl_hyp_param["dropout_low"], gl_hyp_param["dropout_high"])
+        # p = trial.suggest_float("dropout_l{}".format(i), gl_hyp_param["dropout_low"], gl_hyp_param["dropout_high"])
+        p = 0.225
         layers.append(nn.Dropout(p))
         in_features = out_features
     layers.append(nn.Linear(in_features, 2))
@@ -180,13 +182,13 @@ def feature_options(features):
                 "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes"]
     elif features == "qos":
         out = []
-        for feature in features:
+        for feature in gl_df.columns:
             if "qos_" in feature:
                 out.append(feature)
         return out
     elif features == "partition":
-        out = [] 
-        for feature in features:
+        out = []
+        for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
         return out
@@ -194,13 +196,20 @@ def feature_options(features):
         out = ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
                 "time_limit_ahead_queue", "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
                 "jobs_running", "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
-        for feature in features:
+        for feature in gl_df.columns:
             if "qos_" in feature:
                 out.append(feature)
-        for feature in features:
+        for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
         return out
+    elif features == "austin_hypo":
+        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue"]
+        for feature in gl_df.columns:
+            if "partition_" in feature:
+                out.append(feature)
+        return out
+
 
 def train_model(trial, is_ret_model=False):
     X, y_one_hot, feature_mapping_dict = gl_X, gl_y_one_hot, gl_feature_mapping_dict
@@ -318,7 +327,7 @@ def load_data():
     global gl_feature_mapping_dict
     num_jobs = FLAGS.n_jobs
     read_all = True if num_jobs == 0 else False
-    gl_df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs, order_by="random")
+    gl_df = read_db.read_to_df(table="jobs_everything", read_all=read_all, jobs=num_jobs, order_by="random", condense_same_times=False)
     ten_perc = int(num_jobs / 10)
     
     # Adding support for one hot
@@ -354,9 +363,9 @@ def start_trials():
         tags=["classify"]
     )
 
-    sampler = TPESampler(n_startup_trials=5)
+    sampler = TPESampler(n_startup_trials=25)
     study = optuna.create_study(direction='maximize', study_name='namez', sampler=sampler)
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=100)
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
     trial = study.best_trial

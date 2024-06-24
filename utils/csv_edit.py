@@ -1,6 +1,6 @@
 import csv
 
-input_file = 'accountNormUsage.csv'
+input_file = '../graphs/accountNormUsage.csv'
 output_file = 'normUsageDict.csv'
 
 with open(input_file, 'r') as file:

@@ -12,7 +12,7 @@ register_adapter(np.int64, AsIs)
 def sqlalc(df, db_config):
     engine = sqlalchemy.create_engine(
         f'postgresql+psycopg2://{db_config["user"]}:{db_config["password"]}@{db_config["host"]}:{db_config["port"]}/{db_config["dbname"]}')
-    df.to_sql("jobs_2024_05_02_1mil", engine, if_exists='append', index=False)
+    df.to_sql("jobs_2mil", engine, if_exists='append', index=False)
 
 def transform_df(df):
     df = df[["JobID", "UID", "Account", "State", "Partition", "TimelimitRaw", "Submit", "Eligible", "Elapsed", "Planned", "Start",
@@ -60,11 +60,11 @@ def create_enum(conn):
     with conn.cursor() as cursor: cursor.execute(command)
 
 def create_table(conn):
-    command = """DROP TABLE IF EXISTS jobs_2024_05_02_1mil"""
+    command = """DROP TABLE IF EXISTS jobs_2mil"""
     with conn.cursor() as cursor: cursor.execute(command)
 
     command = """
-                CREATE TABLE IF NOT EXISTS jobs_2024_05_02_1mil (
+                CREATE TABLE IF NOT EXISTS jobs_2mil (
                 job_id INTEGER PRIMARY KEY,
                 user_id INTEGER,
                 account VARCHAR(255),
@@ -102,7 +102,17 @@ def create_table(conn):
                 par_cpus_running INTEGER,
                 par_memory_running REAL,
                 par_nodes_running INTEGER,
-                par_time_limit_running INTEGER
+                par_time_limit_running INTEGER,
+                jobs_ahead_queue_priority INTEGER,
+                cpus_ahead_queue_priority INTEGER,
+                memory_ahead_queue_priority REAL,
+                nodes_ahead_queue_priority INTEGER,
+                time_limit_ahead_queue_priority INTEGER,
+                user_jobs_past_day INTEGER,
+                user_cpus_past_day INTEGER,
+                user_memory_past_day INTEGER,
+                user_nodes_past_day INTEGER,
+                user_time_limit_past_day INTEGER
                 )"""
     with conn.cursor() as cursor: cursor.execute(command)
 
@@ -125,6 +135,6 @@ if __name__ == "__main__":
     }
     initialize_db(db_config)
     df = pd.read_csv(csv_path, delimiter="|")
-    # df = df.iloc[-1_000_000:]
+    df = df.iloc[-2_000_000:]
     df = transform_df(df)
     sqlalc(df, db_config)
