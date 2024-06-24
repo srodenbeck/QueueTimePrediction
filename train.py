@@ -5,6 +5,7 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import MinMaxScaler
 from matplotlib import pyplot as plt
 from tqdm import tqdm
@@ -14,6 +15,7 @@ import neptune
 import transformations
 import smogn
 from scipy.stats import pearsonr
+import transformations
 
 
 import classify_train
@@ -30,18 +32,19 @@ flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_integer('epochs', 100, 'Number of Epochs')
 flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 128, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 64, 'Hidden layer 1 dim')
-flags.DEFINE_float('dropout', 0.1, 'Dropout rate')
+flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 78, 'Hidden layer 1 dim')
+flags.DEFINE_float('dropout', 0.15, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
-flags.DEFINE_enum('activ', 'relu', ['relu', 'leaky_relu', 'elu'], 'Activation function')
-flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
+flags.DEFINE_enum('activ', 'elu', ['relu', 'leaky_relu', 'elu', 'gelu'], 'Activation function')
+flags.DEFINE_boolean('shuffle', False,'Shuffle training/validation set')
 flags.DEFINE_boolean('only_10min_plus', True, 'Only include jobs with planned longer than 10 mintues')
 flags.DEFINE_boolean('transform_target', False, 'Whether or not to transform the planned variable')
 flags.DEFINE_boolean('use_early_stopping', False, 'Whether or not to use early stopping')
 flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
 
 flags.DEFINE_boolean('balance_dataset', False, 'Whether or not to use balance_dataset()')
+flags.DEFINE_boolean('condense_same_times', False, 'Whether or not to remove jobs submitted back to back, bar the first job')
 
 flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
 flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
@@ -109,6 +112,60 @@ def get_feature_indices(df, feature_names):
             print(f"Error: Could not find '{feature_name}' in database\nExiting...")
             sys.exit(1)
     return feature_indices
+
+def create_timeseries_folds(X, y, n_splits=5):
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    return tscv
+
+def create_dataloaders_tscv(X, y, train_index, test_index):
+    """
+    create_dataloaders_tscv
+
+    Parameters
+    ----------
+    X : np array
+        2-D Array of input features.
+    y : np array
+        2-D Array of target features.
+    train_index : int array
+        int array of input indices.
+    test_index : int array
+        int array of target indices.
+
+    Returns
+    -------
+    train_dataloader : torch.utils.data.DataLoader
+        Dataloader for training data.
+    test_dataloader : torch.utils.data.DataLoader
+        Dataloader for testing data.
+
+    """
+    X_train, X_test = X[train_index], X[test_index]
+    y_train, y_test = y[train_index], y[test_index]
+    
+    # TODO: Shuffle X_train and y_train
+    
+    
+    if FLAGS.transform:
+        # X_train, X_test = transformations.scale_min_max(X_train, X_test)
+        X_train, X_test = transformations.scale_log(X_train, X_test)
+
+    if FLAGS.transform_target:
+        y_train, y_test = transformations.scale_log(y_train, y_test)
+        
+    x_train_to_tensor = torch.from_numpy(X_train).to(torch.float32)
+    y_train_to_tensor = torch.from_numpy(y_train).to(torch.float32)
+    x_test_to_tensor = torch.from_numpy(X_test).to(torch.float32)
+    y_test_to_tensor = torch.from_numpy(y_test).to(torch.float32)
+    
+    train_dataset = TensorDataset(x_train_to_tensor, y_train_to_tensor)
+    test_dataset = TensorDataset(x_test_to_tensor, y_test_to_tensor)
+    
+    train_dataloader = DataLoader(train_dataset, batch_size=FLAGS.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=FLAGS.batch_size)
+    
+    return train_dataloader, test_dataloader
+    
 
 def create_dataloaders(X, y):
     """
@@ -256,8 +313,15 @@ def main(argv):
 
     num_features = len(feature_names)
     print("Reading from database")
-    df = read_db.read_to_df(table="jobs_all_2", read_all=read_all, jobs=num_jobs)
+    df = read_db.read_to_df(table="jobs_all_2", read_all=read_all, jobs=num_jobs, condense_same_times=FLAGS.condense_same_times)
     print("Finished reading database")
+    print("DataFrame has shape", df.shape)
+    
+    
+    # Removing values over 75000
+    if True:
+        print("Removing values over 75_000 minutes")
+        df = df[df['planned'] < 75_000 * 60]
     
     transformed_cols = []
     # Feature manipulation for categorical features if needed
@@ -281,6 +345,9 @@ def main(argv):
                 break
     feature_names = features
     num_features = len(feature_names)
+    print(feature_names)
+    print(num_features)
+
         
     # Transform data if only_10min_plus flag is on, discards data with planned
     # less than 10 minutes
@@ -288,129 +355,173 @@ def main(argv):
         print("10 plus flag: ", FLAGS.only_10min_plus)
         df = df[df['planned'] > 10 * 60]
         print(f"Using {len(df)} jobs")
-    np_array = df.to_numpy()
+        
 
+        
+    np_array = df.to_numpy()
+    
     # Read in desired features and target columns to numpy arrays
     feature_indices = get_feature_indices(df, feature_names)
     target_index = get_planned_target_index(df)
-    X, y = np_array[:, feature_indices], np_array[:, target_index]
-    print(X[0, :])
-    X = X.astype(np.float32)
-    y = y.astype(np.float32)
+    X_rows, y_rows = np_array[:, feature_indices], np_array[:, target_index]
+    X_rows = X_rows.astype(np.float32)
+    y_rows = y_rows.astype(np.float32)
+    
+    print("X shape:", X_rows.shape)
+    print("y shape:", y_rows.shape)
 
     # Transformations
-    y = y / 60
-
-    # Make dataloaders from arrays
-    train_dataloader, test_dataloader, val_dataloader = create_dataloaders(X, y)
-
-    # Create model
-    model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout, FLAGS.activ)
-
-    # loss function
-    if FLAGS.loss == "l1_loss":
-        loss_fn = nn.L1Loss
-    elif FLAGS.loss == "mse_loss":
-        loss_fn = nn.MSELoss()
-    elif FLAGS.loss == "smooth_l1_loss":
-        loss_fn = nn.SmoothL1Loss()
-    else:
-        sys.exit(f"Loss function '{FLAGS.loss}' not supported")
-
-    # Optimizer
-    if FLAGS.optimizer == "adam":
-        optimizer = optim.Adam(params=model.parameters(), lr=FLAGS.lr)
-    elif FLAGS.optimizer == "sgd":
-        optimizer = optim.SGD(params=model.parameters(), lr=FLAGS.lr)
-    elif FLAGS.optimizer == "adamw":
-        optimizer = optim.AdamW(params=model.parameters(), lr=FLAGS.lr)
-    else:
-        sys.exit(f"Optimizer '{FLAGS.optimizer}' not supported")
-
-    # Run training loop
-    train_loss_by_epoch = []
-    val_loss_by_epoch = []
-
-    best_val_loss = float('inf')
-    patience_counter = 0
-
-    for epoch in range(FLAGS.epochs):
-        train_loss = []
-        val_loss = []
-        custom_loss = dict.fromkeys(custom_loss, 0)
-
-        # Training
-        model.train()
-        for X, y in train_dataloader:
-            pred = model(X)
-            loss = loss_fn(pred.flatten(), y)
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            train_loss.append(loss.item())
-            calculate_custom_loss(pred.flatten(), y, "train")
-
-        # Evaluation/Validation
-        model.eval()
-        for X, y in val_dataloader:
-            with torch.no_grad():
+    y_rows = y_rows / 60
+    
+    n_splits = 5
+    tscv = TimeSeriesSplit(n_splits=n_splits, test_size = len(np_array) // (2 * n_splits + 1))
+    
+    loss_by_fold = []
+    for train_index, test_index in tscv.split(np_array):
+        # Make dataloaders from arrays
+        # train_dataloader, test_dataloader, val_dataloader = create_dataloaders(X, y)
+        train_dataloader, test_dataloader = create_dataloaders_tscv(X_rows, y_rows, train_index, test_index)
+    
+        # Create model
+        model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout, FLAGS.activ)
+    
+        # loss function
+        if FLAGS.loss == "l1_loss":
+            loss_fn = nn.L1Loss
+        elif FLAGS.loss == "mse_loss":
+            loss_fn = nn.MSELoss()
+        elif FLAGS.loss == "smooth_l1_loss":
+            loss_fn = nn.SmoothL1Loss()
+        else:
+            sys.exit(f"Loss function '{FLAGS.loss}' not supported")
+    
+        # Optimizer
+        if FLAGS.optimizer == "adam":
+            optimizer = optim.Adam(params=model.parameters(), lr=FLAGS.lr)
+        elif FLAGS.optimizer == "sgd":
+            optimizer = optim.SGD(params=model.parameters(), lr=FLAGS.lr)
+        elif FLAGS.optimizer == "adamw":
+            optimizer = optim.AdamW(params=model.parameters(), lr=FLAGS.lr)
+        else:
+            sys.exit(f"Optimizer '{FLAGS.optimizer}' not supported")
+    
+        # Run training loop
+        train_loss_by_epoch = []
+        val_loss_by_epoch = []
+    
+        best_val_loss = float('inf')
+        patience_counter = 0
+    
+        for epoch in range(FLAGS.epochs):
+            train_loss = []
+            val_loss = []
+            custom_loss = dict.fromkeys(custom_loss, 0)
+    
+            # Training
+            model.train()
+            for X, y in train_dataloader:
                 pred = model(X)
                 loss = loss_fn(pred.flatten(), y)
-                val_loss.append(loss.item())
-                calculate_custom_loss(pred.flatten(), y, "val")
-                if epoch == FLAGS.epochs - 1:
-                    for i in range(y.shape[0]):
-                        print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
-
-        avg_train_loss = np.mean(train_loss)
-        avg_val_loss = np.mean(val_loss)
-
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            patience_counter = 0
-        else:
-            patience_counter += 1
-
-        if patience_counter >= FLAGS.early_stopping_patience and FLAGS.use_early_stopping:
-            print(f"Early stopping triggered after {epoch + 1} epochs")
-            for i in range(y.shape[0]):
-                print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
-            break
-
-        print(f"Epoch = {epoch}, Train_loss = {avg_train_loss:.2f}, Validation Loss = {avg_val_loss:.5f}")
-        train_loss_by_epoch.append(avg_train_loss)
-        val_loss_by_epoch.append(avg_val_loss)
-        run["train/loss"].append(avg_train_loss)
-        run["valid/loss"].append(avg_val_loss)
-        run["train/within_10min_acc"].append(custom_loss["train_within_10min_correct"] / custom_loss["train_within_10min_total"] * 100)
-        run["valid/within_10min_acc"].append(custom_loss["val_within_10min_correct"] / custom_loss["val_within_10min_total"] * 100)
-        run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"] * 100)
-        run["valid/binary_10min_acc"].append(custom_loss["val_binary_10min_correct"] / custom_loss["val_binary_10min_total"] * 100)
-
-    # Graphing and getting R2 value of model pred vs actual
-    print("Graphing pred vs actual and calculating pearsons r")
-    model.eval()
-    y_pred = []
-    y_actual= []
-    test_loss = []
-    with torch.no_grad():
-        for X, y in test_dataloader:
-            pred = model(X)
-            loss = loss_fn(pred.flatten(), y)
-            test_loss.append(loss.item())
-            calculate_custom_loss(pred.flatten(), y, "test")
-            
-            y_pred.extend(pred.flatten())
-            y_actual.extend(y)
-    avg_test_loss = np.mean(np.mean(test_loss))
-    print(f"Average test loss of {avg_test_loss}")
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+                train_loss.append(loss.item())
+                calculate_custom_loss(pred.flatten(), y, "train")
     
-    r_value = pearsonr(y_pred, y_actual)
-    print("pearson's r: ", r_value)
-    plt.scatter(y_pred, y_actual)
-    plt.xlabel("y predicted")
-    plt.ylabel("y")
-    plt.show()
+            # Evaluation/Validation
+            model.eval()
+            
+            # test_dataloader with tscv, val_dataloader otherwise
+            for X, y in test_dataloader:
+                with torch.no_grad():
+                    pred = model(X)
+                    loss = loss_fn(pred.flatten(), y)
+                    val_loss.append(loss.item())
+                    calculate_custom_loss(pred.flatten(), y, "val")
+                    if epoch == FLAGS.epochs - 1:
+                        for i in range(y.shape[0]):
+                            print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
+    
+            avg_train_loss = np.mean(train_loss)
+            avg_val_loss = np.mean(val_loss)
+    
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+    
+            if patience_counter >= FLAGS.early_stopping_patience and FLAGS.use_early_stopping:
+                print(f"Early stopping triggered after {epoch + 1} epochs")
+                for i in range(y.shape[0]):
+                    print(f"Predicted: {pred.flatten()[i]} -- Real: {y[i]}")
+                break
+    
+            print(f"Epoch = {epoch}, Train_loss = {avg_train_loss:.2f}, Validation Loss = {avg_val_loss:.5f}")
+            train_loss_by_epoch.append(avg_train_loss)
+            val_loss_by_epoch.append(avg_val_loss)
+            run["train/loss"].append(avg_train_loss)
+            run["valid/loss"].append(avg_val_loss)
+            run["train/within_10min_acc"].append(custom_loss["train_within_10min_correct"] / custom_loss["train_within_10min_total"] * 100)
+            run["valid/within_10min_acc"].append(custom_loss["val_within_10min_correct"] / custom_loss["val_within_10min_total"] * 100)
+            run["train/binary_10min_acc"].append(custom_loss["train_binary_10min_correct"] / custom_loss["train_binary_10min_total"] * 100)
+            run["valid/binary_10min_acc"].append(custom_loss["val_binary_10min_correct"] / custom_loss["val_binary_10min_total"] * 100)
+    
+        # Graphing and getting R2 value of model pred vs actual
+        print("Graphing pred vs actual and calculating pearsons r")
+        model.eval()
+        y_pred = []
+        y_actual= []
+        test_loss = []
+        absolute_percentage_error = []
+        with torch.no_grad():
+            for X, y in test_dataloader:
+                pred = model(X)
+                loss = loss_fn(pred.flatten(), y)
+                test_loss.append(loss.item())
+                
+                flat_pred = pred.flatten()
+                for idx in range(len(y)):
+                    ape = abs((y[idx] - flat_pred[idx]) / y[idx])
+                    absolute_percentage_error.append(ape)
+                
+                calculate_custom_loss(pred.flatten(), y, "test")
+                y_pred.extend(pred.flatten())
+                y_actual.extend(y)
+        avg_test_loss = np.mean(np.mean(test_loss))
+        
+        loss_by_fold.append(avg_test_loss)
+        
+        print(f"Average test loss of {avg_test_loss}")
+        bin_width = 0.1
+        bins = np.arange(min(absolute_percentage_error), max(absolute_percentage_error) + bin_width, bin_width)
+        plt.hist(absolute_percentage_error, bins=bins, density=True)
+        plt.xlabel('Absolute Percentage Error')
+        plt.ylabel('Probability Density')
+        plt.title("Density Histogram of Absolute Percentage Error of Test Data")
+        plt.ylim(0.0, 1.0)
+        plt.xlim(0.0, 1.0)
+        plt.show()
+        
+        # Average absolute percentage error
+        avg_ape = np.mean(absolute_percentage_error)
+        print("Mean absolute percentage error:", avg_ape * 100, "%")
+        
+        r_value = pearsonr(y_pred, y_actual)
+        print("pearson's r: ", r_value)
+        plt.scatter(y_pred, y_actual)
+        plt.xlabel("y predicted")
+        plt.ylabel("y")
+        plt.show()
+
+    
+    print(loss_by_fold)
+    print(np.mean(loss_by_fold))
+    
+    # Save models state dict
+    torch.save(model.state_dict(), "regr_model.pt")
+    
+    
     run.stop()
 
 if __name__ == '__main__':
