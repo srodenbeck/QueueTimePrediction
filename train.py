@@ -16,7 +16,7 @@ import transformations
 import smogn
 from scipy.stats import pearsonr
 import transformations
-
+import pandas as pd
 
 import classify_train
 
@@ -28,8 +28,8 @@ from model import nn_model
 
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.001, 'Learning rate.')
-flags.DEFINE_integer('batch_size', 32, 'Batch size')
-flags.DEFINE_integer('epochs', 100, 'Number of Epochs')
+flags.DEFINE_integer('batch_size', 128, 'Batch size')
+flags.DEFINE_integer('epochs', 50, 'Number of Epochs')
 flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
 flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
@@ -288,7 +288,8 @@ def main(argv):
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
                      "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
                      "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
-                     "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+                     "cpus_running", "memory_running", "nodes_running", "time_limit_running",
+                     "year", "month", "day", "hour", "minute", "day_of_week", "day_of_year"]
                      # "partition", "qos"]
     num_features = len(feature_names)
     num_jobs = 0
@@ -314,8 +315,20 @@ def main(argv):
     num_features = len(feature_names)
     print("Reading from database")
     df = read_db.read_to_df(table="jobs_all_2", read_all=read_all, jobs=num_jobs, condense_same_times=FLAGS.condense_same_times)
+    
+    df['eligible'] = pd.to_datetime(df['eligible'])
+    df['year'] = df['eligible'].dt.year
+    df['month'] = df['eligible'].dt.month
+    df['day'] = df['eligible'].dt.day
+    df['hour'] = df['eligible'].dt.hour
+    df['minute'] = df['eligible'].dt.minute
+    df['day_of_week'] = df['eligible'].dt.dayofweek
+    df['day_of_year'] = df['eligible'].dt.dayofyear
+    
+    
     print("Finished reading database")
     print("DataFrame has shape", df.shape)
+    
     
     
     # Removing values over 75000

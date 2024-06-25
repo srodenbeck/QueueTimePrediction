@@ -37,12 +37,15 @@ class nn_model(nn.Module):
 
         layers = [
             nn.Linear(input_dim, hl1),
+            nn.BatchNorm1d(hl1),
             activation_layer,
             nn.Dropout(dropout),
             nn.Linear(hl1, hl2),
+            nn.BatchNorm1d(hl2),
             activation_layer,
             nn.Dropout(dropout),
             nn.Linear(hl2, 32),
+            nn.BatchNorm1d(32),
             activation_layer,
             nn.Linear(32, 1)
         ]
