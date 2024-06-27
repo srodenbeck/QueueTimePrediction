@@ -31,7 +31,7 @@ def create_engine():
     return engine
 
 
-def read_to_df(table, read_all=True, jobs=10000, order_by="submit", condense_same_times=False):
+def read_to_df(table, read_all=True, jobs=10000, order_by="eligible", condense_same_times=False):
     """
        read_to_np()
 
@@ -52,22 +52,22 @@ def read_to_df(table, read_all=True, jobs=10000, order_by="submit", condense_sam
     """
     engine = create_engine()
     if condense_same_times:
-        if order_by == "submit":
+        if order_by == "eligible":
             if read_all:
-                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table}) subquery WHERE account <> prev_account OR prev_account IS NULL", engine)
+                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table}) subquery WHERE account <> prev_account OR prev_account IS NULL ORDER BY eligible DESC", engine)
             else:
-                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table}) subquery WHERE account <> prev_account OR prev_account IS NULL LIMIT {jobs}", engine)
+                df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table}) subquery WHERE account <> prev_account OR prev_account IS NULL ORDER BY eligible DESC LIMIT {jobs}", engine)
         elif order_by == "random":
             if read_all:
                 df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table}) subquery WHERE account <> prev_account OR prev_account IS NULL ORDER BY random()", engine)
             else:
                 df = pd.read_sql_query(f"SELECT * FROM (SELECT *, LAG(account) OVER (ORDER BY submit DESC) AS prev_account FROM {table}) subquery WHERE account <> prev_account OR prev_account IS NULL ORDER BY random() LIMIT {jobs}", engine)
     else:
-        if order_by == "submit":
+        if order_by == "eligible":
             if read_all:
-                df = pd.read_sql_query(f"SELECT * FROM {table}", engine)
+                df = pd.read_sql_query(f"SELECT * FROM {table} ORDER BY eligible DESC", engine)
             else:
-                df = pd.read_sql_query(f"SELECT * FROM {table} ORDER BY submit DESC LIMIT {jobs}", engine)
+                df = pd.read_sql_query(f"SELECT * FROM {table} ORDER BY eligible DESC LIMIT {jobs}", engine)
         elif order_by == "random":
             if read_all:
                 df = pd.read_sql_query(f"SELECT * FROM {table} ORDER BY random()", engine)
