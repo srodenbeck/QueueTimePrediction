@@ -5,6 +5,7 @@ import torch.optim as optim
 from optuna.samplers import TPESampler
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import TimeSeriesSplit
 import numpy as np
 import sys
 import neptune
@@ -180,6 +181,8 @@ def feature_options(features):
         return ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
                 "time_limit_ahead_queue",
                 "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes"]
+    elif features == "user":
+        return ["user_jobs_past_day", "user_cpus_past_day", "user_memory_past_day", "user_nodes_past_day", "user_time_limit_past_day"]
     elif features == "qos":
         out = []
         for feature in gl_df.columns:
@@ -204,7 +207,7 @@ def feature_options(features):
                 out.append(feature)
         return out
     elif features == "austin_hypo":
-        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue"]
+        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue", "user_memory_past_day", "user_cpus_past_day"]
         for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
@@ -317,6 +320,9 @@ def detailed_objective(trial, X_test, y_test, y_test_planned):
     print(f"over60mins acc: {tmp}   ------ total over 60 min: {over_hour_total}")
     percent_misses_marginal = marginal_misses / misses
     print(f"percent of misses that are marginal: {percent_misses_marginal}    ------ total misses {misses}")
+
+    torch.save(model.state_dict(), "classify_model.pt")
+
     return total_acc
 
 
