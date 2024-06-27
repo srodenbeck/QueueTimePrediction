@@ -28,6 +28,9 @@ from model import nn_model
 import shap
 
 
+# 493.01347732543945 %
+
+
 
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.001, 'Learning rate.')
@@ -68,6 +71,20 @@ custom_loss = {
     "val_within_10min_total": 0,
     "val_binary_10min_correct": 0,
     "val_binary_10min_total": 0
+}
+
+
+# Format is - partition: [#Nodes, #CPU_cores, Cores/Node, Mem/Node (GB)]
+partition_feature_dict = {
+    'wholenode': [750, 96000, 128, 257],
+    'standard': [750, 96000, 128, 257],
+    'shared': [250, 32000, 128, 257],
+    'wide': [750, 96000, 128, 257],
+    'highmem': [32, 4096, 128, 1031],
+    'debug': [17, 2176, 128, 257],
+    'gpu-debug': [16, 2048, 128, 515],
+    'benchmarking': [1048, 134144, 128, 257],
+    'azure': [8, 16, 2, 7]
 }
 
 
@@ -304,7 +321,8 @@ def main(argv):
                      "day_of_week", "day_of_year",
                      "par_jobs_ahead_queue", "par_cpu_ahead_queue", "part_memory_ahead_queue",
                      "par_nodes_ahead_queue", "par_time_ahead_queue", "par_jobs_running",
-                     "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
+                     "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running",
+                     "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node"]
                      # "partition", "qos"]
     num_features = len(feature_names)
     num_jobs = 0
@@ -330,6 +348,16 @@ def main(argv):
     num_features = len(feature_names)
     print("Reading from database")
     df = read_db.read_to_df(table="jobs_everything", read_all=read_all, jobs=num_jobs, condense_same_times=False)
+    
+    
+    onlyAllowedPartitions = True 
+    if onlyAllowedPartitions:
+        df = df[df['partition'] in list(partition_feature_dict.keys())]
+    df['par_total_nodes'] = [partition_feature_dict[x][0] for x in df['partition']]
+    df['par_total_cpu'] = [partition_feature_dict[x][1] for x in df['partition']]
+    df['par_cpu_per_node'] = [partition_feature_dict[x][2] for x in df['partition']]
+    df['par_mem_per_node'] = [partition_feature_dict[x][3] for x in df['partition']]
+    
     
     if FLAGS.condense_same_times:
         prev_user = None
@@ -398,10 +426,12 @@ def main(argv):
     if FLAGS.only_10min_plus:
         print("10 plus flag: ", FLAGS.only_10min_plus)
         # TODO: change back to 10 min
-        df = df[df['planned'] > 10 * 60]
+        df = df[df['planned'] < 10 * 60]
+        # Limit to 100_000 jobs for better comparison
+        df = df.iloc[:100_000]
+        df['planned'] += 1
         print(f"Using {len(df)} jobs")
         
-
         
     np_array = df.to_numpy()
     
@@ -552,14 +582,17 @@ def main(argv):
                 calculate_custom_loss(pred.flatten(), y, "test")
                 y_pred.extend(pred.flatten())
                 y_actual.extend(y)
+                
+        test_rows = (test_rows-test_rows.min())/(test_rows.max()-test_rows.min())
+        
         test_rows['y_pred'] = y_pred
         test_rows['y_actual'] = y_actual
         test_rows['error'] = absolute_percentage_error
         
-        
         # Looking for patterns in low accuracy vs high accuracy predictions
-        low_threshold = 0.05
-        high_threshold = 5.0
+        low_threshold = 0.1
+        high_threshold = 10.0
+        
         
         test_rows['group'] = 'other'
         test_rows.loc[test_rows['error'] <= low_threshold, 'group'] = 'close'
@@ -576,23 +609,43 @@ def main(argv):
         
         # Box Plots
         plt.figure(figsize=(12, 6))
-        sns.boxplot(data=close_features)
+        ax = sns.boxplot(data=close_features)
         plt.title('Close Predictions Features')
+        plt.ylim(0, 1)
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
         plt.show()
         
         plt.figure(figsize=(12, 6))
-        sns.boxplot(data=far_off_features)
+        ax = sns.boxplot(data=far_off_features)
         plt.title('Far-off Predictions Features')
+        plt.ylim(0, 1)
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
         plt.show()
         
         # Histograms
-        close_features.hist(figsize=(12, 12))
+        xlims = []
+        for feat in close_features.columns:
+            lower = min(min(close_features[feat]), min(far_off_features[feat]))
+            upper = max(max(close_features[feat]), max(far_off_features[feat]))
+            xlims.append((lower, upper))
+            
+        
+        axes = close_features.hist(figsize=(12, 12))
+        axes = axes.flatten()
+        for i, ax in enumerate(axes):
+            ax.set_xlim(xlims[i])
         plt.suptitle('Close Predictions Features Distribution')
         plt.show()
         
-        far_off_features.hist(figsize=(12, 12))
+        
+        axes = far_off_features.hist(figsize=(12, 12))
+        axes = axes.flatten()
+        for i, ax in enumerate(axes):
+            ax.set_xlim(xlims[i])
         plt.suptitle('Far-off Predictions Features Distribution')
         plt.show()
+        
+        
         
         # Correlation Heatmaps
         plt.figure(figsize=(10, 8))
@@ -651,7 +704,7 @@ def main(argv):
         
         print(f"Average test loss of {avg_test_loss}")
         bin_width = 0.25
-        bins = np.arange(min(absolute_percentage_error), max(absolute_percentage_error) + bin_width, bin_width)
+        bins = np.arange(0, 5 + bin_width, bin_width)
         plt.hist(absolute_percentage_error, bins=bins, density=True)
         plt.xlabel('Absolute Percentage Error')
         plt.ylabel('Probability Density')
