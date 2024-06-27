@@ -2,6 +2,7 @@ from absl import app, flags
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.utils as nn_utils
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -17,12 +18,14 @@ import smogn
 from scipy.stats import pearsonr
 import transformations
 import pandas as pd
+import seaborn as sns
 
 import classify_train
 
 import config_file
 import read_db
 from model import nn_model
+import shap
 
 
 
@@ -30,11 +33,11 @@ flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.001, 'Learning rate.')
 flags.DEFINE_integer('batch_size', 128, 'Batch size')
 flags.DEFINE_integer('epochs', 50, 'Number of Epochs')
-flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
+flags.DEFINE_enum('loss', 'mse_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
 flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 78, 'Hidden layer 1 dim')
-flags.DEFINE_float('dropout', 0.15, 'Dropout rate')
+flags.DEFINE_integer('hl2', 32, 'Hidden layer 1 dim')
+flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
 flags.DEFINE_enum('activ', 'elu', ['relu', 'leaky_relu', 'elu', 'gelu'], 'Activation function')
 flags.DEFINE_boolean('shuffle', False,'Shuffle training/validation set')
@@ -147,8 +150,8 @@ def create_dataloaders_tscv(X, y, train_index, test_index):
     
     
     if FLAGS.transform:
-        # X_train, X_test = transformations.scale_min_max(X_train, X_test)
-        X_train, X_test = transformations.scale_log(X_train, X_test)
+        X_train, X_test = transformations.scale_min_max(X_train, X_test)
+        # X_train, X_test = transformations.scale_log(X_train, X_test, 0)
 
     if FLAGS.transform_target:
         y_train, y_test = transformations.scale_log(y_train, y_test)
@@ -285,11 +288,23 @@ def main(argv):
     )
 
     # Feature names to use in training
+    
+    
+    # All features
+    # ["priority", "time_limit_raw", "req_cpus", "req_mem",
+    #                  "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
+    #                  "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
+    #                  "cpus_running", "memory_running", "nodes_running", "time_limit_running",
+    #                  "year", "month", "day", "hour", "minute", "day_of_week", "day_of_year",
+    #                  "par_jobs_ahead_queue", "par_cpu_ahead_queue", "part_memory_ahead_queue",
+    #                  "par_nodes_ahead_queue", "par_time_ahead_queue", "par_jobs_running",
+    #                  "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
+    
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
-                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
-                     "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
-                     "cpus_running", "memory_running", "nodes_running", "time_limit_running",
-                     "year", "month", "day", "hour", "minute", "day_of_week", "day_of_year"]
+                     "day_of_week", "day_of_year",
+                     "par_jobs_ahead_queue", "par_cpu_ahead_queue", "part_memory_ahead_queue",
+                     "par_nodes_ahead_queue", "par_time_ahead_queue", "par_jobs_running",
+                     "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
                      # "partition", "qos"]
     num_features = len(feature_names)
     num_jobs = 0
@@ -314,7 +329,18 @@ def main(argv):
 
     num_features = len(feature_names)
     print("Reading from database")
-    df = read_db.read_to_df(table="jobs_all_2", read_all=read_all, jobs=num_jobs, condense_same_times=FLAGS.condense_same_times)
+    df = read_db.read_to_df(table="jobs_everything", read_all=read_all, jobs=num_jobs, condense_same_times=False)
+    
+    if FLAGS.condense_same_times:
+        prev_user = None
+        rows_to_drop = []
+        for index, row in df.iterrows():
+            if prev_user == row['user']:
+                rows_to_drop.append(index)
+            prev_user = row['user']
+    
+        df = df.drop(rows_to_drop[1::2])
+    
     
     df['eligible'] = pd.to_datetime(df['eligible'])
     df['year'] = df['eligible'].dt.year
@@ -329,12 +355,17 @@ def main(argv):
     print("Finished reading database")
     print("DataFrame has shape", df.shape)
     
-    
+     
     
     # Removing values over 75000
     if True:
         print("Removing values over 75_000 minutes")
         df = df[df['planned'] < 75_000 * 60]
+        
+        
+    # Average test loss of 24512.13562685602
+    # Mean absolute percentage error: 169.36719417572021 %
+    # pearson's r:  PearsonRResult(statistic=0.2133563214593553, pvalue=2.119680744947272e-89)
     
     transformed_cols = []
     # Feature manipulation for categorical features if needed
@@ -366,6 +397,7 @@ def main(argv):
     # less than 10 minutes
     if FLAGS.only_10min_plus:
         print("10 plus flag: ", FLAGS.only_10min_plus)
+        # TODO: change back to 10 min
         df = df[df['planned'] > 10 * 60]
         print(f"Using {len(df)} jobs")
         
@@ -383,6 +415,10 @@ def main(argv):
     print("X shape:", X_rows.shape)
     print("y shape:", y_rows.shape)
 
+    new_df = pd.DataFrame(data=X_rows, columns=feature_names)
+    # new_df['target'] = y_rows
+    
+ 
     # Transformations
     y_rows = y_rows / 60
     
@@ -390,7 +426,17 @@ def main(argv):
     tscv = TimeSeriesSplit(n_splits=n_splits, test_size = len(np_array) // (2 * n_splits + 1))
     
     loss_by_fold = []
+    
+    from sklearn.ensemble import RandomForestRegressor
+    importances = RandomForestRegressor().fit(X_rows, y_rows).feature_importances_
+    important_indices = np.argsort(importances)[-10:]
+    print(important_indices)
+
+    test_rows = None
+
     for train_index, test_index in tscv.split(np_array):
+        test_rows = new_df.iloc[test_index]
+        
         # Make dataloaders from arrays
         # train_dataloader, test_dataloader, val_dataloader = create_dataloaders(X, y)
         train_dataloader, test_dataloader = create_dataloaders_tscv(X_rows, y_rows, train_index, test_index)
@@ -433,11 +479,12 @@ def main(argv):
             # Training
             model.train()
             for X, y in train_dataloader:
+                optimizer.zero_grad()
                 pred = model(X)
                 loss = loss_fn(pred.flatten(), y)
                 loss.backward()
+                nn_utils.clip_grad_value_(model.parameters(), clip_value=1.0)
                 optimizer.step()
-                optimizer.zero_grad()
                 train_loss.append(loss.item())
                 calculate_custom_loss(pred.flatten(), y, "train")
     
@@ -486,35 +533,133 @@ def main(argv):
         y_pred = []
         y_actual= []
         test_loss = []
+        X_test = []
         absolute_percentage_error = []
         with torch.no_grad():
             for X, y in test_dataloader:
                 pred = model(X)
                 loss = loss_fn(pred.flatten(), y)
                 test_loss.append(loss.item())
-                
+                X_test.extend(X)
                 flat_pred = pred.flatten()
                 for idx in range(len(y)):
                     ape = abs((y[idx] - flat_pred[idx]) / y[idx])
                     absolute_percentage_error.append(ape)
+                    if ape < 0.1 or ape > 10:
+                        pass
+                        
                 
                 calculate_custom_loss(pred.flatten(), y, "test")
                 y_pred.extend(pred.flatten())
                 y_actual.extend(y)
+        test_rows['y_pred'] = y_pred
+        test_rows['y_actual'] = y_actual
+        test_rows['error'] = absolute_percentage_error
+        
+        
+        # Looking for patterns in low accuracy vs high accuracy predictions
+        low_threshold = 0.05
+        high_threshold = 5.0
+        
+        test_rows['group'] = 'other'
+        test_rows.loc[test_rows['error'] <= low_threshold, 'group'] = 'close'
+        test_rows.loc[test_rows['error'] > high_threshold, 'group'] = 'far_off'
+        
+        # Separate the groups
+        close_predictions = test_rows[test_rows['group'] == 'close']
+        far_off_predictions = test_rows[test_rows['group'] == 'far_off']
+        
+        # Drop columns not needed for analysis
+        close_features = close_predictions.drop(columns=['group'])
+        far_off_features = far_off_predictions.drop(columns=['group'])
+
+        
+        # Box Plots
+        plt.figure(figsize=(12, 6))
+        sns.boxplot(data=close_features)
+        plt.title('Close Predictions Features')
+        plt.show()
+        
+        plt.figure(figsize=(12, 6))
+        sns.boxplot(data=far_off_features)
+        plt.title('Far-off Predictions Features')
+        plt.show()
+        
+        # Histograms
+        close_features.hist(figsize=(12, 12))
+        plt.suptitle('Close Predictions Features Distribution')
+        plt.show()
+        
+        far_off_features.hist(figsize=(12, 12))
+        plt.suptitle('Far-off Predictions Features Distribution')
+        plt.show()
+        
+        # Correlation Heatmaps
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(close_features.corr(), annot=True, cmap='coolwarm')
+        plt.title('Close Predictions Features Correlation')
+        plt.show()
+        
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(far_off_features.corr(), annot=True, cmap='coolwarm')
+        plt.title('Far-off Predictions Features Correlation')
+        plt.show()
+
+        model.eval()
+        
+        def predict_function(data):
+            data_tensor = torch.tensor(data, dtype=torch.float32)
+            with torch.no_grad():
+                return model(data_tensor).numpy().flatten()
+        
+        background_data = []
+        for data in train_dataloader:
+            inputs, _ = data
+            background_data.append(inputs.numpy())
+            if len(background_data) >= 100:
+                break
+            
+            
+        background_data = np.concatenate(background_data, axis=0)[:50]
+        
+        test_data = []
+        for data in test_dataloader:
+            inputs, _ = data
+            test_data.append(inputs.numpy())
+        test_data = np.concatenate(test_data, axis=0)
+        
+        X_to_explain = test_data[50:55]
+        
+        # Create SHAP explainer
+        explainer = shap.KernelExplainer(predict_function, background_data)
+        
+        # Calculate SHAP values
+        shap_values = explainer.shap_values(X_to_explain)
+        
+        # Visualize SHAP values for the first instance in the test set
+        shap.initjs()
+        shap.summary_plot(shap_values, X_to_explain, feature_names=feature_names)
+        # shap.force_plot(explainer.expected_value, shap_values[0], test_data[0])
+        
+        
         avg_test_loss = np.mean(np.mean(test_loss))
         
-        loss_by_fold.append(avg_test_loss)
+        loss_by_fold.append(np.mean(absolute_percentage_error))
+        
+        y_pred = np.array(y_pred)
+        y_actual = np.array(y_actual)
         
         print(f"Average test loss of {avg_test_loss}")
-        bin_width = 0.1
+        bin_width = 0.25
         bins = np.arange(min(absolute_percentage_error), max(absolute_percentage_error) + bin_width, bin_width)
         plt.hist(absolute_percentage_error, bins=bins, density=True)
         plt.xlabel('Absolute Percentage Error')
         plt.ylabel('Probability Density')
         plt.title("Density Histogram of Absolute Percentage Error of Test Data")
-        plt.ylim(0.0, 1.0)
-        plt.xlim(0.0, 1.0)
+        plt.xlim(0, 10)
         plt.show()
+        
+        
         
         # Average absolute percentage error
         avg_ape = np.mean(absolute_percentage_error)
@@ -522,9 +667,13 @@ def main(argv):
         
         r_value = pearsonr(y_pred, y_actual)
         print("pearson's r: ", r_value)
-        plt.scatter(y_pred, y_actual)
-        plt.xlabel("y predicted")
-        plt.ylabel("y")
+        
+        differences = y_pred - y_actual
+        plt.hist(differences, 30)
+        plt.xlabel("Difference between y pred and y actual")
+        plt.ylabel("Count")
+        plt.title("Histogram of Difference between y pred vs y actual")
+        plt.xlim(-5000, 5000)
         plt.show()
 
     
