@@ -34,12 +34,12 @@ import shap
 
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.001, 'Learning rate.')
-flags.DEFINE_integer('batch_size', 128, 'Batch size')
+flags.DEFINE_integer('batch_size', 64, 'Batch size')
 flags.DEFINE_integer('epochs', 50, 'Number of Epochs')
 flags.DEFINE_enum('loss', 'mse_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 32, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl1', 38, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 76, 'Hidden layer 1 dim')
 flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
 flags.DEFINE_enum('activ', 'elu', ['relu', 'leaky_relu', 'elu', 'gelu'], 'Activation function')
@@ -75,6 +75,7 @@ custom_loss = {
 
 
 # Format is - partition: [#Nodes, #CPU_cores, Cores/Node, Mem/Node (GB)]
+#TODO: Add number of gpus
 partition_feature_dict = {
     'wholenode': [750, 96000, 128, 257],
     'standard': [750, 96000, 128, 257],
@@ -318,13 +319,20 @@ def main(argv):
     #                  "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
     
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
-                     "day_of_week", "day_of_year",
-                     "par_jobs_ahead_queue", "par_cpu_ahead_queue", "part_memory_ahead_queue",
-                     "par_nodes_ahead_queue", "par_time_ahead_queue", "par_jobs_running",
-                     "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running",
+                    # "day_of_week", "day_of_year",
+                     "par_jobs_ahead_queue", "par_cpus_ahead_queue", "par_memory_ahead_queue",
+                     "par_nodes_ahead_queue", "par_time_limit_ahead_queue",
+                     "par_jobs_queue", "par_cpus_queue", "par_memory_queue",
+                     "par_nodes_queue", "par_time_limit_queue",
+                     "par_jobs_running", "par_cpus_running", "par_memory_running",
+                     "par_nodes_running", "par_time_limit_running",
+                     "user_jobs_past_day", "user_cpus_past_day",
+                     "user_memory_past_day", "user_nodes_past_day",
+                     "user_time_limit_past_day",
                      "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node"]
                      # "partition", "qos"]
     num_features = len(feature_names)
+    print(num_features)
     num_jobs = 0
     read_all = True if num_jobs == 0 else False
 
@@ -347,17 +355,18 @@ def main(argv):
 
     num_features = len(feature_names)
     print("Reading from database")
-    df = read_db.read_to_df(table="jobs_everything", read_all=read_all, jobs=num_jobs, condense_same_times=False)
+    df = read_db.read_to_df(table="jobs_everything_all_2", read_all=read_all, jobs=num_jobs, condense_same_times=False)
+            
+
+    temp_df = df['partition'].map(partition_feature_dict).apply(pd.Series)
+    temp_df = temp_df.fillna(1)
+        
+    # Rename the columns in the temporary dataframe
+    temp_df.columns = ['par_total_nodes', 'par_total_cpu', 'par_cpu_per_node', 'par_mem_per_node']
     
-    
-    onlyAllowedPartitions = True 
-    if onlyAllowedPartitions:
-        df = df[df['partition'] in list(partition_feature_dict.keys())]
-    df['par_total_nodes'] = [partition_feature_dict[x][0] for x in df['partition']]
-    df['par_total_cpu'] = [partition_feature_dict[x][1] for x in df['partition']]
-    df['par_cpu_per_node'] = [partition_feature_dict[x][2] for x in df['partition']]
-    df['par_mem_per_node'] = [partition_feature_dict[x][3] for x in df['partition']]
-    
+    # Concatenate the original dataframe with the temporary dataframe
+    df = pd.concat([df, temp_df], axis=1)
+    df = df.fillna(1)
     
     if FLAGS.condense_same_times:
         prev_user = None
@@ -426,10 +435,10 @@ def main(argv):
     if FLAGS.only_10min_plus:
         print("10 plus flag: ", FLAGS.only_10min_plus)
         # TODO: change back to 10 min
-        df = df[df['planned'] < 10 * 60]
+        df = df[df['planned'] > 10 * 60]
         # Limit to 100_000 jobs for better comparison
-        df = df.iloc[:100_000]
-        df['planned'] += 1
+        df = df.iloc[:1_000_000]
+        # df['planned'] += 1
         print(f"Using {len(df)} jobs")
         
         
@@ -453,7 +462,7 @@ def main(argv):
     y_rows = y_rows / 60
     
     n_splits = 5
-    tscv = TimeSeriesSplit(n_splits=n_splits, test_size = len(np_array) // (2 * n_splits + 1))
+    tscv = TimeSeriesSplit(n_splits=n_splits)   # , test_size = len(np_array) // (2 * n_splits + 1))
     
     loss_by_fold = []
     
@@ -463,8 +472,14 @@ def main(argv):
     print(important_indices)
 
     test_rows = None
+    best_loss = float('inf')
+    best_model = None
 
+    model_idx = 0
+    total_models = 0
+    
     for train_index, test_index in tscv.split(np_array):
+        total_models += 1
         test_rows = new_df.iloc[test_index]
         
         # Make dataloaders from arrays
@@ -565,6 +580,7 @@ def main(argv):
         test_loss = []
         X_test = []
         absolute_percentage_error = []
+        last_dataloader = test_dataloader
         with torch.no_grad():
             for X, y in test_dataloader:
                 pred = model(X)
@@ -627,6 +643,8 @@ def main(argv):
         for feat in close_features.columns:
             lower = min(min(close_features[feat]), min(far_off_features[feat]))
             upper = max(max(close_features[feat]), max(far_off_features[feat]))
+            if lower == upper:
+                upper += 1
             xlims.append((lower, upper))
             
         
@@ -697,6 +715,10 @@ def main(argv):
         
         avg_test_loss = np.mean(np.mean(test_loss))
         
+        if avg_test_loss < best_loss and total_models != n_splits:
+            best_model = model
+            model_idx = total_models
+        
         loss_by_fold.append(np.mean(absolute_percentage_error))
         
         y_pred = np.array(y_pred)
@@ -728,14 +750,40 @@ def main(argv):
         plt.title("Histogram of Difference between y pred vs y actual")
         plt.xlim(-5000, 5000)
         plt.show()
-
+        
+        plt.scatter(y_pred, y_actual)
+        plt.title("Scatter plot of y pred vs y actual with LOBF")
+        plt.xlabel("y predicted")
+        plt.ylabel("y actual")
+        m, b = np.polyfit(y_pred, y_actual, 1)
+        plt.plot(y_pred, m * y_pred + b, 'r-', label=f"Line of Best Fit (r={r_value})")
+        plt.show()
     
     print(loss_by_fold)
     print(np.mean(loss_by_fold))
     
-    # Save models state dict
-    torch.save(model.state_dict(), "regr_model.pt")
     
+    # Save best model
+    torch.save(best_model.state_dict(), 'best_model.pt')
+    
+    # Final validation :)
+    final_loss = []
+    X_test = []
+    y_pred = []
+    y_actual = []
+    with torch.no_grad():
+        for X, y in last_dataloader:
+            pred = model(X)
+            loss = loss_fn(pred.flatten(), y)
+            final_loss.append(loss.item())
+            X_test.extend(X)
+            y_pred.extend(pred.flatten())
+            y_actual.extend(y)
+    
+    r_value = pearsonr(y_pred, y_actual)
+    print(f"Model number {model_idx} / {total_models} had a pearson r of")
+    print(r_value)
+    print("and a loss of ", np.mean(final_loss))
     
     run.stop()
 
