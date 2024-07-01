@@ -12,7 +12,7 @@ register_adapter(np.int64, AsIs)
 def sqlalc(df, db_config):
     engine = sqlalchemy.create_engine(
         f'postgresql+psycopg2://{db_config["user"]}:{db_config["password"]}@{db_config["host"]}:{db_config["port"]}/{db_config["dbname"]}')
-    df.to_sql("jobs_2mil", engine, if_exists='append', index=False)
+    df.to_sql("every_job", engine, if_exists='append', index=False)
 
 def transform_df(df):
     df = df[["JobID", "UID", "Account", "State", "Partition", "TimelimitRaw", "Submit", "Eligible", "Elapsed", "Planned", "Start",
@@ -43,8 +43,11 @@ def transform_df(df):
     df['req_mem'] = df['req_mem'].apply(memory_to_gigabytes)
     df['planned'] = df['planned'].apply(time_to_seconds)
     df['elapsed'] = df['elapsed'].apply(time_to_seconds)
+
     partition_enum = ['standard', 'shared', 'wholenode', 'wide', 'gpu', 'highmem', 'azure']
     df = df[df['partition'].isin(partition_enum)]
+    state_enum = ['COMPLETED', 'CANCELLED', 'FAILED', 'REQUEUED', 'NODE_FAIL', 'PENDING', 'OUT_OF_MEMORY', 'TIMEOUT']
+    df = df[df['state'].isin(state_enum)]
 
     # Change Null values for pandas.NA
     df = df.fillna(pd.NA)
@@ -56,15 +59,12 @@ def create_enum(conn):
     'azure')"""
     with conn.cursor() as cursor: cursor.execute(command)
     command = """CREATE TYPE state_enum AS ENUM ('COMPLETED', 'CANCELLED', 'FAILED', 'REQUEUED', 'NODE_FAIL', 'PENDING', 
-            'OUT_OF_MEMORY', 'TIMEOUT')"""
+            'OUT_OF_MEMORY', 'TIMEOUT', 'RUNNING')"""
     with conn.cursor() as cursor: cursor.execute(command)
 
 def create_table(conn):
-    command = """DROP TABLE IF EXISTS jobs_2mil"""
-    with conn.cursor() as cursor: cursor.execute(command)
-
     command = """
-                CREATE TABLE IF NOT EXISTS jobs_2mil (
+                CREATE TABLE IF NOT EXISTS every_job (
                 job_id INTEGER PRIMARY KEY,
                 user_id INTEGER,
                 account VARCHAR(255),
@@ -125,7 +125,6 @@ def initialize_db(db_config):
 
 
 if __name__ == "__main__":
-    csv_path = "/home/austin/until_2024-05-02.csv"
     db_config = {
         "dbname": "sacctdata",
         "user": "postgres",
@@ -134,7 +133,12 @@ if __name__ == "__main__":
         "port": "5432"
     }
     initialize_db(db_config)
-    df = pd.read_csv(csv_path, delimiter="|")
-    df = df.iloc[-2_000_000:]
+
+    csv_path = "/home/austin/start_to_2024-05-01.csv"
+    df1 = pd.read_csv(csv_path, delimiter="|")
+    csv_path = "/home/austin/2024-05-01_to_2024-06-26.csv"
+    df2 = pd.read_csv(csv_path, delimiter="|")
+    df = pd.concat([df1, df2]).drop_duplicates(['JobID'], keep='last')
+    # df = df.iloc[-2_000_000:]
     df = transform_df(df)
     sqlalc(df, db_config)

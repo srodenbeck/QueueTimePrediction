@@ -1,7 +1,7 @@
 import read_db
 import pandas as pd
 
-df = read_db.read_to_df(table="every_job", read_all=False, jobs=100, order_by="eligible", condense_same_times=False)
+df = read_db.read_to_df(table="every_job", read_all=True, order_by="eligible", condense_same_times=False)
 print("Database read\n\n")
 
 df['elapsed_mins'] = df['elapsed'] / 60
@@ -33,3 +33,7 @@ print(result.head(20))
 print("TOP 20 HIGHEST WASTED TOTAL WALLTIME")
 result = result.sort_values(by=["total_wasted_wall_time"], ascending=False)
 print(result.head(20))
+
+result = result.sort_values(by=["average_wasted_wall_time"], ascending=False)
+
+result.to_csv('job_crimes.csv', index=False)

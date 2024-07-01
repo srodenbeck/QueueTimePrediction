@@ -24,10 +24,11 @@ flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_boolean('shuffle', True, 'Shuffle training/validation set')
 flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
 flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
-flags.DEFINE_integer('n_jobs', 100_000, 'Number of jobs to run on')
-flags.DEFINE_integer('epochs', 50, 'Number of epochs')
+flags.DEFINE_integer('epochs', 60, 'Number of epochs')
 flags.DEFINE_float('lr', 0.001, 'Learning rate')
 flags.DEFINE_enum('activ_fn', "leaky_relu", ['leaky_relu', 'relu'], 'Activation Function')
+flags.DEFINE_integer('n_jobs', 800_000, 'Number of jobs to run on')
+flags.DEFINE_boolean('condense_jobs', True, 'Condense jobs submitted by same user')
 FLAGS = flags.FLAGS
 
 gl_df = None
@@ -43,7 +44,7 @@ gl_hyp_param = {
     "layer_size_high": 128,
     "dropout_low": -1,
     "dropout_high": -1,
-    "features": ["austin_hypo", "partition", "request", "queue_request"]
+    "features": ["austin_hypo_2", "queue_request", "user"]
 }
 
 
@@ -190,7 +191,7 @@ def feature_options(features):
                 out.append(feature)
         return out
     elif features == "partition":
-        out = []
+        out = ["par_jobs_running", "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
         for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
@@ -207,11 +208,17 @@ def feature_options(features):
                 out.append(feature)
         return out
     elif features == "austin_hypo":
-        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue", "user_memory_past_day", "user_cpus_past_day"]
+        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue", "par_jobs_running", "par_cpus_running", "user_memory_past_day", "user_cpus_past_day"]
         for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
         return out
+    elif features == "austin_hypo_2":
+        return ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
+                "time_limit_ahead_queue",
+                "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
+                "user_jobs_past_day", "user_cpus_past_day", "user_memory_past_day", "user_nodes_past_day", "user_time_limit_past_day",
+                "par_jobs_running", "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
 
 
 def train_model(trial, is_ret_model=False):
@@ -333,7 +340,9 @@ def load_data():
     global gl_feature_mapping_dict
     num_jobs = FLAGS.n_jobs
     read_all = True if num_jobs == 0 else False
-    gl_df = read_db.read_to_df(table="jobs_everything", read_all=read_all, jobs=num_jobs, order_by="random", condense_same_times=False)
+    gl_df = read_db.read_to_df(table="jobs_everything_tmp", read_all=read_all, jobs=num_jobs, order_by="eligible", condense_same_times=FLAGS.condense_jobs)
+    print(len(gl_df.index))
+    gl_df = gl_df.sort_values(by=["eligible"], ascending=True)
     ten_perc = int(num_jobs / 10)
     
     # Adding support for one hot
