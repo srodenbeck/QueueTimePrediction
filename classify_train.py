@@ -19,7 +19,6 @@ import pandas as pd
 import config_file
 import read_db
 
-# flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 # flags.DEFINE_integer('batch_size', 32, 'Batch size')
 # flags.DEFINE_boolean('shuffle', True, 'Shuffle training/validation set')
 # flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
@@ -29,7 +28,7 @@ import read_db
 # flags.DEFINE_enum('activ_fn', "leaky_relu", ['leaky_relu', 'relu'], 'Activation Function')
 # flags.DEFINE_integer('n_jobs', 800_000, 'Number of jobs to run on')
 # flags.DEFINE_boolean('condense_jobs', True, 'Condense jobs submitted by same user')
-FLAGS = flags.FLAGS
+# FLAGS = flags.FLAGS
 
 gl_df = None
 gl_X = None
@@ -219,6 +218,22 @@ def feature_options(features):
                 "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
                 "user_jobs_past_day", "user_cpus_past_day", "user_memory_past_day", "user_nodes_past_day", "user_time_limit_past_day",
                 "par_jobs_running", "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
+    elif features == "austin_hypo_3":
+        return ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes", "partition",
+                "par_nodes_available", "par_cpus_available", "par_memory_available",
+                "par_nodes_available_running_queue_priority", "par_cpus_available_running_queue_priority",
+                "par_memory_available_running_queue_priority"]
+    elif features == "austin_hypo_4":
+        return ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes", "partition",
+                "par_nodes_available_running_queue_priority", "par_cpus_available_running_queue_priority",
+                "par_memory_available_running_queue_priority"]
+    elif features == "austin_hypo_5":
+        return ["priority", "time_limit_raw", "req_cpus", "req_mem", "partition",
+                "par_nodes_available_running_queue_priority", "user_time_limit_past_day"]
+    elif features == "mid":
+        return ["priority", "time_limit_raw", "req_cpus", "req_mem",
+                "par_nodes_available_running_queue_priority", "user_time_limit_past_day"]
+
 
 
 def train_model(trial, is_ret_model=False):
