@@ -611,7 +611,7 @@ if __name__ == '__main__':
     # calculate_running_features()
     # calculate_queue_features()
     # calculate_higher_priority_queue_features()
-    calculate_user_features()
-    # calculate_remaining_running_by_partition()
-    # calculate_remaining_higher_priority_queue_features()
+    # calculate_user_features()
+    calculate_remaining_running_by_partition()
+    calculate_remaining_higher_priority_queue_features()
 

@@ -36,10 +36,11 @@ flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.001, 'Learning rate.')
 flags.DEFINE_integer('batch_size', 64, 'Batch size')
 flags.DEFINE_integer('epochs', 50, 'Number of Epochs')
-flags.DEFINE_enum('loss', 'mse_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
+flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 38, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 76, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 64, 'Hidden layer 2 dim')
+flags.DEFINE_integer('hl3', 32, 'Hidden layer 3 dim')
 flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
 flags.DEFINE_enum('activ', 'elu', ['relu', 'leaky_relu', 'elu', 'gelu'], 'Activation function')
@@ -55,6 +56,7 @@ flags.DEFINE_boolean('condense_same_times', False, 'Whether or not to remove job
 flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
 flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
 
+flags.DEFINE_boolean('ten_thousand_or_below', False, 'Whether or not to limit jobs to jobs with planned times of 10_000 minutes or below')
 
 FLAGS = flags.FLAGS
 
@@ -77,15 +79,16 @@ custom_loss = {
 # Format is - partition: [#Nodes, #CPU_cores, Cores/Node, Mem/Node (GB)]
 #TODO: Add number of gpus
 partition_feature_dict = {
-    'wholenode': [750, 96000, 128, 257],
-    'standard': [750, 96000, 128, 257],
-    'shared': [250, 32000, 128, 257],
-    'wide': [750, 96000, 128, 257],
-    'highmem': [32, 4096, 128, 1031],
-    'debug': [17, 2176, 128, 257],
-    'gpu-debug': [16, 2048, 128, 515],
-    'benchmarking': [1048, 134144, 128, 257],
-    'azure': [8, 16, 2, 7]
+    'wholenode': [750, 96000, 128, 257, 0],
+    'standard': [750, 96000, 128, 257, 0],
+    'shared': [250, 32000, 128, 257, 0],
+    'wide': [750, 96000, 128, 257, 0],
+    'highmem': [32, 4096, 128, 1031, 0],
+    'debug': [17, 2176, 128, 257, 0],
+    'gpu-debug': [16, 2048, 128, 515, 64],
+    'benchmarking': [1048, 134144, 128, 257, 0],
+    'azure': [8, 16, 2, 7, 0],
+    'gpu': [16, 2048, 128, 515, 64]
 }
 
 
@@ -318,7 +321,7 @@ def main(argv):
     #                  "par_nodes_ahead_queue", "par_time_ahead_queue", "par_jobs_running",
     #                  "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
     
-    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
+    feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
                     # "day_of_week", "day_of_year",
                      "par_jobs_ahead_queue", "par_cpus_ahead_queue", "par_memory_ahead_queue",
                      "par_nodes_ahead_queue", "par_time_limit_ahead_queue",
@@ -329,7 +332,7 @@ def main(argv):
                      "user_jobs_past_day", "user_cpus_past_day",
                      "user_memory_past_day", "user_nodes_past_day",
                      "user_time_limit_past_day",
-                     "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node"]
+                     "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node", "par_total_gpu"]
                      # "partition", "qos"]
     num_features = len(feature_names)
     print(num_features)
@@ -348,6 +351,7 @@ def main(argv):
         'optimizer': FLAGS.optimizer,
         'hl1': FLAGS.hl1,
         'hl2': FLAGS.hl2,
+        'hl3': FLAGS.hl3,
         'dropout': FLAGS.dropout,
         '10_min_plus': FLAGS.only_10min_plus
     }
@@ -357,12 +361,14 @@ def main(argv):
     print("Reading from database")
     df = read_db.read_to_df(table="jobs_everything_all_2", read_all=read_all, jobs=num_jobs, condense_same_times=False)
             
-
+    df = df[df['partition'] != 'gpu']
+    print("Finished reading from database")
+    
     temp_df = df['partition'].map(partition_feature_dict).apply(pd.Series)
     temp_df = temp_df.fillna(1)
         
     # Rename the columns in the temporary dataframe
-    temp_df.columns = ['par_total_nodes', 'par_total_cpu', 'par_cpu_per_node', 'par_mem_per_node']
+    temp_df.columns = ['par_total_nodes', 'par_total_cpu', 'par_cpu_per_node', 'par_mem_per_node', 'par_total_gpu']
     
     # Concatenate the original dataframe with the temporary dataframe
     df = pd.concat([df, temp_df], axis=1)
@@ -429,6 +435,12 @@ def main(argv):
     print(feature_names)
     print(num_features)
 
+
+
+    if FLAGS.ten_thousand_or_below:
+        df = df[df['planned'] < 10_000 * 60]
+        
+        
         
     # Transform data if only_10min_plus flag is on, discards data with planned
     # less than 10 minutes
@@ -440,8 +452,8 @@ def main(argv):
         df = df.iloc[:1_000_000]
         # df['planned'] += 1
         print(f"Using {len(df)} jobs")
-        
-        
+
+
     np_array = df.to_numpy()
     
     # Read in desired features and target columns to numpy arrays
@@ -457,7 +469,8 @@ def main(argv):
     new_df = pd.DataFrame(data=X_rows, columns=feature_names)
     # new_df['target'] = y_rows
     
- 
+    print("here")
+    
     # Transformations
     y_rows = y_rows / 60
     
@@ -465,11 +478,12 @@ def main(argv):
     tscv = TimeSeriesSplit(n_splits=n_splits)   # , test_size = len(np_array) // (2 * n_splits + 1))
     
     loss_by_fold = []
-    
+    print("Loading sklearn ")
     from sklearn.ensemble import RandomForestRegressor
-    importances = RandomForestRegressor().fit(X_rows, y_rows).feature_importances_
-    important_indices = np.argsort(importances)[-10:]
-    print(important_indices)
+    print("getting importances")
+    # importances = RandomForestRegressor().fit(X_rows, y_rows).feature_importances_
+    # important_indices = np.argsort(importances)[-10:]
+    # print(important_indices)
 
     test_rows = None
     best_loss = float('inf')
@@ -487,7 +501,7 @@ def main(argv):
         train_dataloader, test_dataloader = create_dataloaders_tscv(X_rows, y_rows, train_index, test_index)
     
         # Create model
-        model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout, FLAGS.activ)
+        model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.hl3, FLAGS.dropout, FLAGS.activ)
     
         # loss function
         if FLAGS.loss == "l1_loss":
@@ -581,6 +595,7 @@ def main(argv):
         X_test = []
         absolute_percentage_error = []
         last_dataloader = test_dataloader
+        within_50_percent = 0.0
         with torch.no_grad():
             for X, y in test_dataloader:
                 pred = model(X)
@@ -590,6 +605,8 @@ def main(argv):
                 flat_pred = pred.flatten()
                 for idx in range(len(y)):
                     ape = abs((y[idx] - flat_pred[idx]) / y[idx])
+                    if flat_pred[idx] * 0.5 < y[idx] < flat_pred[idx] * 1.5:
+                        within_50_percent += 1
                     absolute_percentage_error.append(ape)
                     if ape < 0.1 or ape > 10:
                         pass
@@ -598,6 +615,9 @@ def main(argv):
                 calculate_custom_loss(pred.flatten(), y, "test")
                 y_pred.extend(pred.flatten())
                 y_actual.extend(y)
+                
+        within_50_percent /= len(absolute_percentage_error)
+        print("Percent of jobs within 50% of predicted: ", within_50_percent * 100)
                 
         test_rows = (test_rows-test_rows.min())/(test_rows.max()-test_rows.min())
         
@@ -638,30 +658,30 @@ def main(argv):
         ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
         plt.show()
         
-        # Histograms
-        xlims = []
-        for feat in close_features.columns:
-            lower = min(min(close_features[feat]), min(far_off_features[feat]))
-            upper = max(max(close_features[feat]), max(far_off_features[feat]))
-            if lower == upper:
-                upper += 1
-            xlims.append((lower, upper))
+        # # Histograms
+        # xlims = []
+        # for feat in close_features.columns:
+        #     lower = min(min(close_features[feat]), min(far_off_features[feat]))
+        #     upper = max(max(close_features[feat]), max(far_off_features[feat]))
+        #     if lower == upper:
+        #         upper += 1
+        #     xlims.append((lower, upper))
             
         
-        axes = close_features.hist(figsize=(12, 12))
-        axes = axes.flatten()
-        for i, ax in enumerate(axes):
-            ax.set_xlim(xlims[i])
-        plt.suptitle('Close Predictions Features Distribution')
-        plt.show()
+        # axes = close_features.hist(figsize=(12, 12))
+        # axes = axes.flatten()
+        # for i, ax in enumerate(axes):
+        #     ax.set_xlim(xlims[i])
+        # plt.suptitle('Close Predictions Features Distribution')
+        # plt.show()
         
         
-        axes = far_off_features.hist(figsize=(12, 12))
-        axes = axes.flatten()
-        for i, ax in enumerate(axes):
-            ax.set_xlim(xlims[i])
-        plt.suptitle('Far-off Predictions Features Distribution')
-        plt.show()
+        # axes = far_off_features.hist(figsize=(12, 12))
+        # axes = axes.flatten()
+        # for i, ax in enumerate(axes):
+        #     ax.set_xlim(xlims[i])
+        # plt.suptitle('Far-off Predictions Features Distribution')
+        # plt.show()
         
         
         
@@ -755,10 +775,48 @@ def main(argv):
         plt.title("Scatter plot of y pred vs y actual with LOBF")
         plt.xlabel("y predicted")
         plt.ylabel("y actual")
+        plt.xlim(0, 10_000)
+        plt.ylim(0, 10_000)
         m, b = np.polyfit(y_pred, y_actual, 1)
         plt.plot(y_pred, m * y_pred + b, 'r-', label=f"Line of Best Fit (r={r_value})")
         plt.show()
-    
+        
+        total = 0
+        within_100_perc = 0
+        within_200_perc = 0
+        within_100_perc_plus1hr_buffer = 0
+        within_50_perc_plus1hr_buffer = 0
+        
+        for z in range(len(y_pred)):
+            total += 1
+            if y_pred[z] > y_actual[z]:
+                max_val = y_pred[z]
+                min_val = y_actual[z]
+            else:
+                min_val = y_pred[z]
+                max_val = y_actual[z]
+            if (((max_val - min_val) / min_val) * 100) < 200:
+                within_200_perc += 1
+                if (((max_val - min_val) / min_val) * 100) < 100:
+                    within_100_perc += 1
+        
+            min_val += 60
+            max_val += 60
+            if (((max_val - min_val) / min_val) * 100) < 100:
+                within_100_perc_plus1hr_buffer += 1
+                if (((max_val - min_val) / min_val) * 100) < 50:
+                    within_50_perc_plus1hr_buffer += 1
+        
+        print(f"{total=}")
+        print(f"Within 100 percentage accuracy: {(within_100_perc / total) * 100}%")
+        print(f"Within 200 percentage accuracy: {(within_200_perc / total) * 100}%")
+        print(f"Within 100 percentage accuracy + buffer: {(within_100_perc_plus1hr_buffer / total) * 100}%")
+        print(f"Within 50 percentage accuracy + buffer: {(within_50_perc_plus1hr_buffer / total) * 100}%")
+        run["test/within_100_perc"].append((within_100_perc / total) * 100)
+        run["test/within_200_perc"].append((within_200_perc / total) * 100)
+        run["test/buffer_within_100_perc"].append((within_100_perc_plus1hr_buffer / total) * 100)
+        run["test/buffer_within_50_perc"].append((within_50_perc_plus1hr_buffer / total) * 100)
+            
     print(loss_by_fold)
     print(np.mean(loss_by_fold))
     

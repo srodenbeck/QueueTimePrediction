@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 import numpy as np
+import pandas as pd
 import sys
 import neptune
 import neptune.integrations.optuna as npt_utils
@@ -21,27 +22,33 @@ import classify_train
 import read_db
 from model import nn_model
 
-FLAGS = flags.FLAGS
-
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.001, 'Learning rate.')
-flags.DEFINE_integer('batch_size', 32, 'Batch size')
+flags.DEFINE_integer('batch_size', 64, 'Batch size')
 flags.DEFINE_integer('epochs', 20, 'Number of Epochs')
-flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
+flags.DEFINE_enum('loss', 'l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 128, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 64, 'Hidden layer 1 dim')
-flags.DEFINE_float('dropout', 0.1, 'Dropout rate')
-flags.DEFINE_enum('activ', 'relu', ['relu', 'leaky_relu', 'elu'], 'Activation function')
+flags.DEFINE_integer('hl1', 36, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 72, 'Hidden layer 2 dim')
+flags.DEFINE_integer('hl3', 36, 'Hidden layer 3 dim')
+flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
+flags.DEFINE_enum('activ', 'elu', ['relu', 'leaky_relu', 'elu', 'gelu'], 'Activation function')
 flags.DEFINE_boolean('shuffle', True,'Shuffle training/validation set')
-flags.DEFINE_boolean('only_10min_plus', False, 'Only include jobs with planned longer than 10 minutes')
-flags.DEFINE_boolean('transform_target', True, 'Whether or not to transform the planned variable')
+flags.DEFINE_boolean('only_10min_plus', True, 'Only include jobs with planned longer than 10 mintues')
+flags.DEFINE_boolean('transform_target', False, 'Whether or not to transform the planned variable')
 flags.DEFINE_boolean('use_early_stopping', False, 'Whether or not to use early stopping')
 flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
+
 flags.DEFINE_boolean('balance_dataset', False, 'Whether or not to use balance_dataset()')
+flags.DEFINE_boolean('condense_same_times', False, 'Whether or not to remove jobs submitted back to back, bar the first job')
+
 flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
 flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
+
+flags.DEFINE_boolean('ten_thousand_or_below', False, 'Whether or not to limit jobs to jobs with planned times of 10_000 minutes or below')
+
+FLAGS = flags.FLAGS
 
 custom_loss = {
     "train_within_10min_correct":  0,
@@ -56,6 +63,18 @@ custom_loss = {
     "val_within_10min_total": 0,
     "val_binary_10min_correct": 0,
     "val_binary_10min_total": 0
+}
+
+partition_feature_dict = {
+    'wholenode': [750, 96000, 128, 257],
+    'standard': [750, 96000, 128, 257],
+    'shared': [250, 32000, 128, 257],
+    'wide': [750, 96000, 128, 257],
+    'highmem': [32, 4096, 128, 1031],
+    'debug': [17, 2176, 128, 257],
+    'gpu-debug': [16, 2048, 128, 515],
+    'benchmarking': [1048, 134144, 128, 257],
+    'azure': [8, 16, 2, 7]
 }
 
 def get_planned_target_index(df):
@@ -125,9 +144,18 @@ def objective(trial):
     starting_time = time.time()
 
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
-                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
-                     "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
-                     "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+                    # "day_of_week", "day_of_year",
+                     "par_jobs_ahead_queue", "par_cpus_ahead_queue", "par_memory_ahead_queue",
+                     "par_nodes_ahead_queue", "par_time_limit_ahead_queue",
+                     "par_jobs_queue", "par_cpus_queue", "par_memory_queue",
+                     "par_nodes_queue", "par_time_limit_queue",
+                     "par_jobs_running", "par_cpus_running", "par_memory_running",
+                     "par_nodes_running", "par_time_limit_running",
+                     "user_jobs_past_day", "user_cpus_past_day",
+                     "user_memory_past_day", "user_nodes_past_day",
+                     "user_time_limit_past_day",
+                     "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node"]
+    
     num_features = len(feature_names)
     num_jobs = 400_000
 
@@ -138,17 +166,18 @@ def objective(trial):
         'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
         'batch_size': trial.suggest_int('batch_size', 16, 128),
         'epochs': FLAGS.epochs,
-        'loss_fn': trial.suggest_categorical('loss_fn', ['mse_loss', 'l1_loss', 'smooth_l1_loss']),
+        'loss_fn': trial.suggest_categorical('loss_fn', ['l1_loss']),
         'optimizer': trial.suggest_categorical('optimizer', ['sgd', 'adam', 'adamw']),
-        'hl1': trial.suggest_int('hl1', 32, 256),
+        'hl1': trial.suggest_int('hl1', 16, 128),
         'hl2': trial.suggest_int('hl2', 16, 128),
+        'hl3': trial.suggest_int('hl3', 16, 128),
         'dropout': trial.suggest_float('dropout', 0.0, 0.3),
         'activ': trial.suggest_categorical('activ', ['relu', 'leaky_relu', 'elu']),
     }
 
     num_features = len(feature_names)
 
-    model = nn_model(num_features, params['hl1'], params['hl2'], params['dropout'], params['activ'])
+    model = nn_model(num_features, params['hl1'], params['hl2'], params['hl3'], params['dropout'], params['activ'])
 
     if params['loss_fn'] == "l1_loss":
         loss_fn = nn.L1Loss()
@@ -221,9 +250,18 @@ def detailed_objective(trial):
     starting_time = time.time()
 
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
-                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
-                     "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
-                     "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+                    # "day_of_week", "day_of_year",
+                     "par_jobs_ahead_queue", "par_cpus_ahead_queue", "par_memory_ahead_queue",
+                     "par_nodes_ahead_queue", "par_time_limit_ahead_queue",
+                     "par_jobs_queue", "par_cpus_queue", "par_memory_queue",
+                     "par_nodes_queue", "par_time_limit_queue",
+                     "par_jobs_running", "par_cpus_running", "par_memory_running",
+                     "par_nodes_running", "par_time_limit_running",
+                     "user_jobs_past_day", "user_cpus_past_day",
+                     "user_memory_past_day", "user_nodes_past_day",
+                     "user_time_limit_past_day",
+                     "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node"]
+    
     num_features = len(feature_names)
     num_jobs = 400_000
 
@@ -334,15 +372,37 @@ def main(argv):
     neptune_callback = npt_utils.NeptuneCallback(run)
     
     feature_names = ["priority", "time_limit_raw", "req_cpus", "req_mem",
-                     "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
-                     "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
-                     "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+                   # "day_of_week", "day_of_year",
+                    "par_jobs_ahead_queue", "par_cpus_ahead_queue", "par_memory_ahead_queue",
+                    "par_nodes_ahead_queue", "par_time_limit_ahead_queue",
+                    "par_jobs_queue", "par_cpus_queue", "par_memory_queue",
+                    "par_nodes_queue", "par_time_limit_queue",
+                    "par_jobs_running", "par_cpus_running", "par_memory_running",
+                    "par_nodes_running", "par_time_limit_running",
+                    "user_jobs_past_day", "user_cpus_past_day",
+                    "user_memory_past_day", "user_nodes_past_day",
+                    "user_time_limit_past_day",
+                    "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node"]
+   
     num_jobs = 400_000
     read_all = True if num_jobs == 0 else False
     
-    df = read_db.read_to_df(table="new_jobs_all", read_all=read_all, jobs=num_jobs)
+    df = read_db.read_to_df(table="jobs_everything_all_2", read_all=read_all, jobs=num_jobs)
+    
+    
     if FLAGS.only_10min_plus:
         df = df[df['planned'] > 10 * 60]
+        
+    temp_df = df['partition'].map(partition_feature_dict).apply(pd.Series)
+    temp_df = temp_df.fillna(1)
+        
+    # Rename the columns in the temporary dataframe
+    temp_df.columns = ['par_total_nodes', 'par_total_cpu', 'par_cpu_per_node', 'par_mem_per_node']
+    
+    # Concatenate the original dataframe with the temporary dataframe
+    df = pd.concat([df, temp_df], axis=1)
+    df = df.fillna(1)
+        
     np_array = df.to_numpy()
     
     feature_indices = get_feature_indices(df, feature_names)
@@ -362,7 +422,7 @@ def main(argv):
     sampler = TPESampler(n_startup_trials=10)                      
     
     study = optuna.create_study(sampler=sampler, direction="minimize")
-    study.optimize(objective, n_trials=100, callbacks=[neptune_callback])
+    study.optimize(objective, n_trials=75, callbacks=[neptune_callback])
 
     print("Number of finished trials: ", len(study.trials))
     print("Best trial:")

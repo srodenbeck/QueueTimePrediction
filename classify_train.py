@@ -19,16 +19,16 @@ import pandas as pd
 import config_file
 import read_db
 
-flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
-flags.DEFINE_integer('batch_size', 32, 'Batch size')
-flags.DEFINE_boolean('shuffle', True, 'Shuffle training/validation set')
-flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
-flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
-flags.DEFINE_integer('epochs', 60, 'Number of epochs')
-flags.DEFINE_float('lr', 0.001, 'Learning rate')
-flags.DEFINE_enum('activ_fn', "leaky_relu", ['leaky_relu', 'relu'], 'Activation Function')
-flags.DEFINE_integer('n_jobs', 800_000, 'Number of jobs to run on')
-flags.DEFINE_boolean('condense_jobs', True, 'Condense jobs submitted by same user')
+# flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
+# flags.DEFINE_integer('batch_size', 32, 'Batch size')
+# flags.DEFINE_boolean('shuffle', True, 'Shuffle training/validation set')
+# flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
+# flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
+# flags.DEFINE_integer('epochs', 60, 'Number of epochs')
+# flags.DEFINE_float('lr', 0.001, 'Learning rate')
+# flags.DEFINE_enum('activ_fn', "leaky_relu", ['leaky_relu', 'relu'], 'Activation Function')
+# flags.DEFINE_integer('n_jobs', 800_000, 'Number of jobs to run on')
+# flags.DEFINE_boolean('condense_jobs', True, 'Condense jobs submitted by same user')
 FLAGS = flags.FLAGS
 
 gl_df = None

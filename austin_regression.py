@@ -26,22 +26,22 @@ from model import nn_model
 
 
 
-flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
-flags.DEFINE_float('lr', 0.001, 'Learning rate.')
-flags.DEFINE_integer('batch_size', 128, 'Batch size')
-flags.DEFINE_integer('epochs', 50, 'Number of Epochs')
-flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
-flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 78, 'Hidden layer 1 dim')
-flags.DEFINE_float('dropout', 0.15, 'Dropout rate')
-flags.DEFINE_boolean('transform', True,'Use transformations on features')
-flags.DEFINE_enum('activ', 'leaky_relu', ['relu', 'leaky_relu', 'elu', 'gelu'], 'Activation function')
-flags.DEFINE_boolean('shuffle', False,'Shuffle training/validation set')
-flags.DEFINE_boolean('only_10min_plus', True, 'Only include jobs with planned longer than 10 mintues')
-flags.DEFINE_boolean('use_early_stopping', False, 'Whether or not to use early stopping')
-flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
-flags.DEFINE_boolean('condense_same_times', False, 'Whether or not to remove jobs submitted back to back, bar the first job')
+# flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
+# flags.DEFINE_float('lr', 0.001, 'Learning rate.')
+# flags.DEFINE_integer('batch_size', 128, 'Batch size')
+# flags.DEFINE_integer('epochs', 50, 'Number of Epochs')
+# flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
+# flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
+# flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
+# flags.DEFINE_integer('hl2', 78, 'Hidden layer 1 dim')
+# flags.DEFINE_float('dropout', 0.15, 'Dropout rate')
+# flags.DEFINE_boolean('transform', True,'Use transformations on features')
+# flags.DEFINE_enum('activ', 'leaky_relu', ['relu', 'leaky_relu', 'elu', 'gelu'], 'Activation function')
+# flags.DEFINE_boolean('shuffle', False,'Shuffle training/validation set')
+# flags.DEFINE_boolean('only_10min_plus', True, 'Only include jobs with planned longer than 10 mintues')
+# flags.DEFINE_boolean('use_early_stopping', False, 'Whether or not to use early stopping')
+# flags.DEFINE_integer('early_stopping_patience', 10, 'Patience for early stopping')
+# flags.DEFINE_boolean('condense_same_times', False, 'Whether or not to remove jobs submitted back to back, bar the first job')
 
 FLAGS = flags.FLAGS
 
