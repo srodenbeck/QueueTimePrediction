@@ -99,30 +99,33 @@ if __name__=="__main__":
     sacct_command = f"sacct -j {args.job} -X -o Partition,TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes --parsable2"
     result = subprocess.run([sacct_command], shell=True, capture_output=True, text=True).stdout.split("|")
     
+    partition_sacct_command = f"sacct -p {result[0]} -o TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes,State --parsable2"
+    par_result = subprocess.run([partition_sacct_command], shell=True, capture_output=True, text=True).stdout.split("|")
     
+    print(par_result)
     
     # Queue Features
     
     
     
     
-   ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
-                   # "day_of_week", "day_of_year",
-                    "par_jobs_ahead_queue", "par_cpus_ahead_queue", "par_memory_ahead_queue",
-                    "par_nodes_ahead_queue", "par_time_limit_ahead_queue",
-                    "par_jobs_queue", "par_cpus_queue", "par_memory_queue",
-                    "par_nodes_queue", "par_time_limit_queue",
-                    "par_jobs_running", "par_cpus_running", "par_memory_running",
-                    "par_nodes_running", "par_time_limit_running",
-                    "user_jobs_past_day", "user_cpus_past_day",
-                    "user_memory_past_day", "user_nodes_past_day",
-                    "user_time_limit_past_day",
-                    "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node", "par_total_gpu"] 
+   # ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
+   #                 # "day_of_week", "day_of_year",
+   #                  "par_jobs_ahead_queue", "par_cpus_ahead_queue", "par_memory_ahead_queue",
+   #                  "par_nodes_ahead_queue", "par_time_limit_ahead_queue",
+   #                  "par_jobs_queue", "par_cpus_queue", "par_memory_queue",
+   #                  "par_nodes_queue", "par_time_limit_queue",
+   #                  "par_jobs_running", "par_cpus_running", "par_memory_running",
+   #                  "par_nodes_running", "par_time_limit_running",
+   #                  "user_jobs_past_day", "user_cpus_past_day",
+   #                  "user_memory_past_day", "user_nodes_past_day",
+   #                  "user_time_limit_past_day",
+   #                  "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node", "par_total_gpu"] 
     
     
     
-    model = nn_model(input_dim, hl1, hl2, hl3, dropout, activ)
-    model.load_state_dict(model_state_dict_path)
+    # model = nn_model(input_dim, hl1, hl2, hl3, dropout, activ)
+    # model.load_state_dict(model_state_dict_path)
     
     
     
