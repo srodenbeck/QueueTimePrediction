@@ -258,7 +258,7 @@ if __name__=="__main__":
     sacct_command = f"sacct -j {int(args.job)} -X -o Partition,TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes,User --parsable2"
     result = subprocess.run([sacct_command], shell=True, capture_output=True, text=True).stdout.split("\n")[1].split("|")
 
-    PARTITION = RESULT[0]
+    PARTITION = result[0]
     par_sacct_command = f"sacct -a -X -r {PARTITION} -o TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes,State --parsable2"
     par_result = subprocess.run([par_sacct_command], shell=True, capture_output=True, text=True).stdout.split("\n")
 
@@ -268,8 +268,15 @@ if __name__=="__main__":
 
     col_names = par_result[0].split("|")
     split_data = [item.split("|") for item in par_result[1:]]
-    df = pd.DataFrame(split_data, columns=col_names)
-    df["ReqMem"] = df["ReqMem"].apply(memory_to_gigabytes)
+    df = pd.DataFrame(split_data, columns=col_names).astype(str)
+    print(df.head())
+    df['TimelimitRaw'] = df['TimelimitRaw'].replace('', '0') 
+    df['TimelimitRaw'] = df['TimelimitRaw'].astype(int)
+    df['Priority'] = df['Priority'].astype(int)
+    df['ReqCPUS'] = df['ReqCPUS'].astype(int)
+    df['ReqMem'] = df['ReqMem'].astype(str)
+    df['ReqNodes'] = df['ReqMem'].astype(int)
+    df["ReqMem"] = df["ReqMem"].apply(memory_to_gigabytes).astype(int)
     
     col_names = user_past_day_result[0].split("|")
     split_data = [item.split("|") for item in user_past_day_result[1:]]
