@@ -801,13 +801,13 @@ def main(argv):
                 if (((max_val - min_val) / min_val) * 100) < 100:
                     within_100_perc += 1
 
-            if y_pred[z] < 1 * 60:
+            if y_actual[z] < 1 * 60:
                 if max_val - min_val < 20:
                     my_metric_1 += 1
-            elif y_pred[z] < 5 * 60:
+            elif y_actual[z] < 5 * 60:
                 if max_val - min_val < 60:
                     my_metric_1 += 1
-            elif y_pred[z] < 12 * 60:
+            elif y_actual[z] < 12 * 60:
                 if max_val - min_val < 120:
                     my_metric_1 += 1
             else:
