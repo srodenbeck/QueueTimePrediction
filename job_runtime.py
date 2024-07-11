@@ -9,6 +9,8 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from scipy.stats import pearsonr
+from sklearn.tree import DecisionTreeRegressor
+import pickle
 
 
 partition_feature_dict = {
@@ -74,84 +76,44 @@ if __name__ == "__main__":
     for feat in feature_names:
         df[feat] = np.log1p(df[feat])
     
+    df["elapsed"] = df["elapsed"] / 60
+    
     train_dataloader, test_dataloader = get_dataloaders(df, feature_names, target)
     
     
-    input_dim = len(feature_names)
-    hl1 = 24
-    hl2 = 12
-    dropout = 0.15
-    activ = "relu"
-    model = model.job_model(input_dim, hl1, hl2, dropout, activ)
+    reg = DecisionTreeRegressor()
+    tree_predictions = []
+    tree_y = []
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    loss_fn = torch.nn.MSELoss()
-
-    epochs = 50
-
-    train_loss_by_epoch = []
-    test_loss_by_epoch = []
+    train_df, test_df = train_test_split(df, test_size=0.2, shuffle=True)
+    X_train = train_df[feature_names].to_numpy()
+    y_train = train_df[target].to_numpy()
+    X_test = test_df[feature_names].to_numpy()
+    y_test = test_df[target].to_numpy()
     
-    for epoch in range(epochs):
-        train_loss = []
-        test_loss = []
+    print(len(X_train), len(y_train))
+    print(len(X_test), len(y_test))
     
-        # Training
-        model.train()
-        for X, y in train_dataloader:
-            optimizer.zero_grad()
-            pred = model(X)
-            loss = loss_fn(pred.flatten(), y)
-            loss.backward()
-            # nn_utils.clip_grad_value_(model.parameters(), clip_value=1.0)
-            optimizer.step()
-            
-            train_loss.append(loss.item())
+    reg.fit(X_train, y_train)
     
-        # Evaluation/Validation
-        model.eval()
-        for X, y in test_dataloader:
-            with torch.no_grad():
-                pred = model(X)
-                loss = loss_fn(pred.flatten(), y)
-                test_loss.append(loss.item())
+    pred = reg.predict(X_test)
+       
+    print(pred.shape, y_test.shape)
     
-        avg_train_loss = np.mean(train_loss)
-        avg_test_loss = np.mean(test_loss)
-        
-        train_loss_by_epoch.append(avg_train_loss)
-        test_loss_by_epoch.append(avg_test_loss)
-        
-        print(f"epoch {epoch} / {epochs} - train loss of {avg_train_loss} - test loss of {avg_test_loss}")
-        
+    r = pearsonr(pred, y_test)
+    mses = ((pred - y_test) ** 2).mean()
+    print(r)
+    print(mses)
     
-    
-    plt.plot(range(epochs), train_loss_by_epoch, "-b", label="Train Loss")
-    plt.plot(range(epochs), test_loss_by_epoch, "-g", label="Test Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss (MSE)")
-    plt.title("Loss by Epoch")
-    plt.legend(loc="upper right")
-    plt.show()
-    
-    model.eval()
-    y_pred = []
-    y_actual = []
-    for X, y in test_dataloader:
-        pred = model(X)
-        y_pred.extend(pred.flatten())
-        y_actual.append(y)
-    
-    r_result = pearsonr(y_pred, y_actual)
-    
-    print(r_result)
-    
-    m, b = np.polyfit(y_pred, y_actual, 1)
-    plt.scatter(y_pred, y_actual)
-    plt.plot(y_pred, m * y_pred + b, "r-")
+    m, b = np.polyfit(pred, y_test, 1)
+    plt.scatter(pred, y_test)
+    plt.plot(pred, m * pred + b, "r-")
     plt.xlabel("y pred")
-    plt.ylabel("y actual")
+    plt.ylabel("y test")
     plt.show()
     
-        
-        
+    df["predicted_run_time"] = reg.predict(df[feature_names])
+    
+    with open('decision_tree_regressor.pkl', 'wb') as f:
+        pickle.dump(reg, f)
+    
