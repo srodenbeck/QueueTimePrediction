@@ -271,7 +271,7 @@ if __name__=="__main__":
 # 	           now[{+|-}count[seconds(default)|minutes|hours|days|weeks]]
         
     sacct_command = f"sacct -j {int(args.job)} -X -o Partition,TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes,User --parsable2"
-    result = subprocess.run([sacct_command], shell=True, capture_output=True, text=True).stdout.split("\n")[1].split("|")
+    result = subprocess.run(sacct_command, shell=False, capture_output=True, text=True).stdout.split("\n")[1].split("|")
 
     PARTITION = result[0]
     par_sacct_command = f"sacct -a -X -r {PARTITION} -o TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes,State --parsable2"

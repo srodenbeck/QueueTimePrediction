@@ -829,13 +829,14 @@ def main(argv):
         m, b = np.polyfit(y_pred, y_actual, 1)
         plt.plot(y_pred, m * y_pred + b, 'r-', label=f"Line of Best Fit (r={r_value})")
         plt.show()
-        
+
         total = 0
         within_100_perc = 0
         within_200_perc = 0
         within_100_perc_plus1hr_buffer = 0
         within_50_perc_plus1hr_buffer = 0
-        
+        my_metric_1 = 0
+
         for z in range(len(y_pred)):
             total += 1
             if y_pred[z] > y_actual[z]:
@@ -848,23 +849,39 @@ def main(argv):
                 within_200_perc += 1
                 if (((max_val - min_val) / min_val) * 100) < 100:
                     within_100_perc += 1
-        
+
+            if y_actual[z] < 1 * 60:
+                if max_val - min_val < 20:
+                    my_metric_1 += 1
+            elif y_actual[z] < 5 * 60:
+                if max_val - min_val < 60:
+                    my_metric_1 += 1
+            elif y_actual[z] < 12 * 60:
+                if max_val - min_val < 120:
+                    my_metric_1 += 1
+            else:
+                if max_val - min_val < 12 * 60:
+                    my_metric_1 += 1
+
             min_val += 60
             max_val += 60
             if (((max_val - min_val) / min_val) * 100) < 100:
                 within_100_perc_plus1hr_buffer += 1
                 if (((max_val - min_val) / min_val) * 100) < 50:
                     within_50_perc_plus1hr_buffer += 1
-        
+
         print(f"{total=}")
         print(f"Within 100 percentage accuracy: {(within_100_perc / total) * 100}%")
         print(f"Within 200 percentage accuracy: {(within_200_perc / total) * 100}%")
         print(f"Within 100 percentage accuracy + buffer: {(within_100_perc_plus1hr_buffer / total) * 100}%")
         print(f"Within 50 percentage accuracy + buffer: {(within_50_perc_plus1hr_buffer / total) * 100}%")
+        print(f"Metric 1: {(my_metric_1 / total) * 100}%")
         run["test/within_100_perc"].append((within_100_perc / total) * 100)
         run["test/within_200_perc"].append((within_200_perc / total) * 100)
         run["test/buffer_within_100_perc"].append((within_100_perc_plus1hr_buffer / total) * 100)
         run["test/buffer_within_50_perc"].append((within_50_perc_plus1hr_buffer / total) * 100)
+        run["test/my_metric_1"].append((my_metric_1 / total) * 100)
+        scores.append((within_100_perc_plus1hr_buffer / total) * 100)
             
     print(loss_by_fold)
     print(np.mean(loss_by_fold))
