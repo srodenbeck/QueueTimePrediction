@@ -211,12 +211,6 @@ def make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day
     input_arr = np.array(feature_vals)
     
     return input_arr
-    
-
- 
- 'pred_run_time', 
- 'par_running_pred_time_limit', 'par_pred_timelimit_running', 
-
 
 
 
@@ -271,7 +265,7 @@ if __name__=="__main__":
 # 	           now[{+|-}count[seconds(default)|minutes|hours|days|weeks]]
         
     sacct_command = f"sacct -j {int(args.job)} -X -o Partition,TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes,User --parsable2"
-    result = subprocess.run(sacct_command, shell=False, capture_output=True, text=True).stdout.split("\n")[1].split("|")
+    result = subprocess.run([sacct_command], shell=True, capture_output=True, text=True).stdout.split("\n")[1].split("|")
 
     PARTITION = result[0]
     par_sacct_command = f"sacct -a -X -r {PARTITION} -o TimelimitRaw,Priority,ReqCPUS,ReqMem,ReqNodes,State --parsable2"
@@ -282,22 +276,23 @@ if __name__=="__main__":
     user_past_day_result = subprocess.run([user_sacct_command], shell=True, capture_output=True, text=True).stdout.split("\n")
 
     col_names = par_result[0].split("|")
-    split_data = [item.split("|") for item in par_result[1:]]
+    split_data = [item.split("|") for item in par_result[1:-1]]
     df = pd.DataFrame(split_data, columns=col_names).astype(str)
+    df.replace("None", "0")
 
     df['TimelimitRaw'] = df['TimelimitRaw'].replace('', '0') 
     df['TimelimitRaw'] = df['TimelimitRaw'].astype(int)
     df['Priority'] = df['Priority'].astype(int)
     df['ReqCPUS'] = df['ReqCPUS'].astype(int)
-    df['ReqMem'] = df['ReqMem'].astype(str)
-    df['ReqNodes'] = df['ReqMem'].astype(int)
-    df["ReqMem"] = df["ReqMem"].apply(memory_to_gigabytes).astype(int)
-    
-    col_names = user_past_day_result[0].split("|")
-    split_data = [item.split("|") for item in user_past_day_result[1:]]
-    user_past_day_df = pd.DataFrame(split_data, columns=col_names)
+    df['ReqNodes'] = df['ReqNodes'].astype(int)
     df["ReqMem"] = df["ReqMem"].apply(memory_to_gigabytes)
+    df["ReqMem"] = df["ReqMem"].astype(int)
+ 
+    col_names = user_past_day_result[0].split("|")
+    split_data = [item.split("|") for item in user_past_day_result[1:-1]]
+    user_past_day_df = pd.DataFrame(split_data, columns=col_names)
     
+ 
     # [#Nodes, #CPU_cores, Cores/Node, Mem/Node (GB), GPU]
     df["par_total_nodes"] = partition_feature_dict[result[0]][0]
     df["par_total_cpu"] = partition_feature_dict[result[0]][1]
