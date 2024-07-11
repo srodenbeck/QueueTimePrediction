@@ -38,8 +38,8 @@ flags.DEFINE_integer('batch_size', 64, 'Batch size')
 flags.DEFINE_integer('epochs', 50, 'Number of Epochs')
 flags.DEFINE_enum('loss', 'smooth_l1_loss', ['mse_loss', 'l1_loss', 'smooth_l1_loss'], 'Loss function')
 flags.DEFINE_enum('optimizer', 'adam', ['sgd', 'adam', 'adamw'], 'Optimizer algorithm')
-flags.DEFINE_integer('hl1', 32, 'Hidden layer 1 dim')
-flags.DEFINE_integer('hl2', 64, 'Hidden layer 2 dim')
+flags.DEFINE_integer('hl1', 64, 'Hidden layer 1 dim')
+flags.DEFINE_integer('hl2', 48, 'Hidden layer 2 dim')
 flags.DEFINE_integer('hl3', 32, 'Hidden layer 3 dim')
 flags.DEFINE_float('dropout', 0.2, 'Dropout rate')
 flags.DEFINE_boolean('transform', True,'Use transformations on features')
@@ -111,13 +111,26 @@ def get_planned_target_index(df):
     return df.columns.get_loc('planned')
 
 
+partition_feature_dict = {
+    'wholenode': [750, 96000, 128, 257, 0],
+    'standard': [750, 96000, 128, 257, 0],
+    'shared': [250, 32000, 128, 257, 0],
+    'wide': [750, 96000, 128, 257, 0],
+    'highmem': [32, 4096, 128, 1031, 0],
+    'debug': [17, 2176, 128, 257, 0],
+    'gpu-debug': [16, 2048, 128, 515, 64],
+    'benchmarking': [1048, 134144, 128, 257, 0],
+    'azure': [8, 16, 2, 7, 0],
+    'gpu': [16, 2048, 128, 515, 64]
+}
+
+
 def get_feature_indices(df, feature_names):
     """
     get_feature_indices()
 
     Parameters
     ----------
-    df : pd.DataFrame
         Dataframe of information from database.
     feature_names : List (str)
         List of strings containing the names of desired features.
@@ -129,9 +142,14 @@ def get_feature_indices(df, feature_names):
 
     """
     feature_indices = []
+    feat_cols = list(df.columns)
+    print("Columns:", feat_cols)
     for feature_name in feature_names:
         try:
-            feature_indices.append(df.columns.get_loc(feature_name))
+            print(feature_name)
+            print(df[feature_name])
+            print()
+            feature_indices.append(feat_cols.index(feature_name))
         except Exception as e:
             print(f"Error: Could not find '{feature_name}' in database\nExiting...")
             sys.exit(1)
@@ -171,8 +189,8 @@ def create_dataloaders_tscv(X, y, train_index, test_index):
     
     
     if FLAGS.transform:
-        X_train, X_test = transformations.scale_min_max(X_train, X_test)
-        # X_train, X_test = transformations.scale_log(X_train, X_test, 0)
+        # X_train, X_test = transformations.scale_min_max(X_train, X_test)
+        X_train, X_test = transformations.scale_log(X_train, X_test, 0)
 
     if FLAGS.transform_target:
         y_train, y_test = transformations.scale_log(y_train, y_test)
@@ -316,7 +334,7 @@ def main(argv):
     #                  "jobs_ahead_queue", "jobs_running", "cpus_ahead_queue",
     #                  "memory_ahead_queue", "nodes_ahead_queue", "time_limit_ahead_queue",
     #                  "cpus_running", "memory_running", "nodes_running", "time_limit_running",
-    #                  "year", "month", "day", "hour", "minute", "day_of_week", "day_of_year",
+    #                  "year", "month", "day" , "hour", "minute", "day_of_week", "day_of_year",
     #                  "par_jobs_ahead_queue", "par_cpu_ahead_queue", "part_memory_ahead_queue",
     #                  "par_nodes_ahead_queue", "par_time_ahead_queue", "par_jobs_running",
     #                  "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
@@ -332,8 +350,26 @@ def main(argv):
                      "user_jobs_past_day", "user_cpus_past_day",
                      "user_memory_past_day", "user_nodes_past_day",
                      "user_time_limit_past_day",
+                     # NOTE THAT par_running_pred_time_limit IS ACTUALLY 
+                     # PAR QUEUE PRED TIME LIMIT
+                     "par_pred_timelimit_running", "par_running_pred_time_limit",
                      "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node", "par_total_gpu"]
                      # "partition", "qos"]
+                     
+    feature_names = ['priority', 'time_limit_raw', 'req_cpus', 'req_mem', 'req_nodes',
+                     'par_jobs_ahead_queue', 'par_cpus_ahead_queue', 'par_memory_ahead_queue',
+                     'par_nodes_ahead_queue', 'par_time_limit_ahead_queue', 'par_jobs_queue', 
+                     'par_cpus_queue', 'par_memory_queue', 'par_nodes_queue', 'par_time_limit_queue',
+                     'par_jobs_running', 'par_cpus_running', 'par_memory_running',
+                     'par_nodes_running', 'par_time_limit_running', 'user_jobs_past_day',
+                     'user_cpus_past_day', 'user_memory_past_day', 'user_nodes_past_day', 'user_time_limit_past_day',
+                     'par_total_nodes', 'par_total_cpu', 'par_cpu_per_node', 'par_mem_per_node',
+                     'par_total_gpu', 
+                     'pred_run_time', 'par_running_pred_time_limit',
+                     'par_pred_timelimit_running']
+                     # NOTE THAT par_running_pred_time_limit IS ACTUALLY 
+                     # PAR QUEUE PRED TIME LIMIT
+    
     num_features = len(feature_names)
     print(num_features)
     num_jobs = 0
@@ -359,9 +395,9 @@ def main(argv):
 
     num_features = len(feature_names)
     print("Reading from database")
-    df = read_db.read_to_df(table="jobs_everything_all_2", read_all=read_all, jobs=num_jobs, condense_same_times=False)
+    df = read_db.read_to_df(table="ea_with_pred", read_all=read_all, jobs=num_jobs, condense_same_times=False)
             
-    df = df[df['partition'] != 'gpu']
+    # df = df[df['partition'] != 'gpu']
     print("Finished reading from database")
     
     temp_df = df['partition'].map(partition_feature_dict).apply(pd.Series)
@@ -371,7 +407,9 @@ def main(argv):
     temp_df.columns = ['par_total_nodes', 'par_total_cpu', 'par_cpu_per_node', 'par_mem_per_node', 'par_total_gpu']
     
     # Concatenate the original dataframe with the temporary dataframe
-    df = pd.concat([df, temp_df], axis=1)
+    
+    # TODO: Remove this comment if df does not already have above columns
+    # df = pd.concat([df, temp_df], axis=1)
     df = df.fillna(1)
     
     if FLAGS.condense_same_times:
@@ -422,15 +460,18 @@ def main(argv):
         df = transformations.make_one_hot(df, "qos", new_col_limit=4)
         transformed_cols.append("qos")
     
+    print(['pred_run_time', 'par_running_pred_time_limit','par_pred_timelimit_running'])
+    
     features = []
     for col_name in df.columns:
         if col_name in transformed_cols:
             continue
         for name in feature_names:
             if name in col_name:
-                features.append(col_name)
+                # features.append(col_name)
+                print(col_name)
                 break
-    feature_names = features
+    # feature_names = features
     num_features = len(feature_names)
     print(feature_names)
     print(num_features)
@@ -456,8 +497,11 @@ def main(argv):
 
     np_array = df.to_numpy()
     
+    print(list(df.columns))
+    
     # Read in desired features and target columns to numpy arrays
     feature_indices = get_feature_indices(df, feature_names)
+    print(feature_indices)
     target_index = get_planned_target_index(df)
     X_rows, y_rows = np_array[:, feature_indices], np_array[:, target_index]
     X_rows = X_rows.astype(np.float32)
@@ -491,6 +535,8 @@ def main(argv):
 
     model_idx = 0
     total_models = 0
+    
+    print(feature_names)
     
     for train_index, test_index in tscv.split(np_array):
         total_models += 1
@@ -634,6 +680,8 @@ def main(argv):
         test_rows.loc[test_rows['error'] <= low_threshold, 'group'] = 'close'
         test_rows.loc[test_rows['error'] > high_threshold, 'group'] = 'far_off'
         
+        test_rows.fillna(1)
+        
         # Separate the groups
         close_predictions = test_rows[test_rows['group'] == 'close']
         far_off_predictions = test_rows[test_rows['group'] == 'far_off']
@@ -644,19 +692,19 @@ def main(argv):
 
         
         # Box Plots
-        plt.figure(figsize=(12, 6))
-        ax = sns.boxplot(data=close_features)
-        plt.title('Close Predictions Features')
-        plt.ylim(0, 1)
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-        plt.show()
+        # plt.figure(figsize=(12, 6))
+        # ax = sns.boxplot(data=close_features)
+        # plt.title('Close Predictions Features')
+        # plt.ylim(0, 1)
+        # ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+        # plt.show()
         
-        plt.figure(figsize=(12, 6))
-        ax = sns.boxplot(data=far_off_features)
-        plt.title('Far-off Predictions Features')
-        plt.ylim(0, 1)
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-        plt.show()
+        # plt.figure(figsize=(12, 6))
+        # ax = sns.boxplot(data=far_off_features)
+        # plt.title('Far-off Predictions Features')
+        # plt.ylim(0, 1)
+        # ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+        # plt.show()
         
         # # Histograms
         # xlims = []
@@ -736,6 +784,7 @@ def main(argv):
         avg_test_loss = np.mean(np.mean(test_loss))
         
         if avg_test_loss < best_loss and total_models != n_splits:
+            print("UPDATED BEST MODEL")
             best_model = model
             model_idx = total_models
         
@@ -771,7 +820,7 @@ def main(argv):
         plt.xlim(-5000, 5000)
         plt.show()
         
-        plt.scatter(y_pred, y_actual)
+        plt.scatter(y_pred, y_actual, alpha=0.1)
         plt.title("Scatter plot of y pred vs y actual with LOBF")
         plt.xlabel("y predicted")
         plt.ylabel("y actual")
@@ -824,24 +873,28 @@ def main(argv):
     # Save best model
     torch.save(best_model.state_dict(), 'best_model.pt')
     
-    # Final validation :)
-    final_loss = []
-    X_test = []
-    y_pred = []
-    y_actual = []
-    with torch.no_grad():
-        for X, y in last_dataloader:
-            pred = model(X)
-            loss = loss_fn(pred.flatten(), y)
-            final_loss.append(loss.item())
-            X_test.extend(X)
-            y_pred.extend(pred.flatten())
-            y_actual.extend(y)
+    # # Final validation :)
+    # final_loss = []
+    # X_test = []
+    # y_pred = []
+    # y_actual = []
+    # with torch.no_grad():
+    #     for X, y in last_dataloader:
+    #         pred = model(X)
+    #         loss = loss_fn(pred.flatten(), y)
+    #         final_loss.append(loss.item())
+    #         X_test.extend(X)
+    #         y_pred.extend(pred.flatten())
+    #         y_actual.extend(y.flatten())
     
-    r_value = pearsonr(y_pred, y_actual)
-    print(f"Model number {model_idx} / {total_models} had a pearson r of")
-    print(r_value)
-    print("and a loss of ", np.mean(final_loss))
+    # print(len(y_pred))
+    # print(len(y_actual))
+    # y_pred = y_pred[:min(len(y_pred), len(y_actual))]
+    # y_actual = y_actual[:min(len(y_pred), len(y_actual))]
+    # r_value = pearsonr(y_pred, y_actual)
+    # print(f"Model number {model_idx} / {total_models} had a pearson r of")
+    # print(r_value)
+    # print("and a loss of ", np.mean(final_loss))
     
     run.stop()
 

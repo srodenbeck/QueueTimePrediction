@@ -134,7 +134,7 @@ def add_minutes_to_current_time(minutes_to_add):
     # Return new time
     return new_time.strftime("%Y-%m-%d %H:%M:%S")
 
-def make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day_df):
+def make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day_df, pred_run_time):
     # Priority
     feature_vals.append(result[2])
     # TimelimitRaw
@@ -200,12 +200,26 @@ def make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day
     feature_vals.append(partition_feature_dict[PARTITION][3])
     # par total gpus
     feature_vals.append(partition_feature_dict[PARTITION][4])
+    
+    # pred run time
+    feature_vals.append(pred_run_time)
+    # par queue time limit pred
+    feature_vals.append(sum(queue_df["PredRuntime"]))
+    # par pred timelimit running
+    feature_vals.append(sum(running_df["PredRuntime"]))
 
     input_arr = np.array(feature_vals)
     
     return input_arr
     
-    
+
+ 
+ 'pred_run_time', 
+ 'par_running_pred_time_limit', 'par_pred_timelimit_running', 
+
+
+
+
 input_dim = 30
 hl1 = 32
 hl2 = 64
@@ -229,12 +243,13 @@ partition_feature_dict = {
 
 
 model_state_dict_path = "best_model.pt"
-    
-parser = argparse.ArgumentParser()
-parser.add_argument("-j", "--job", dest="job", default=-1, help="Job ID")
-args = parser.parse_args()
 
 if __name__=="__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-j", "--job", dest="job", default=-1, help="Job ID")
+    args = parser.parse_args()
+    
+    
     # Input to saved nn model
     feature_vals = []
     
@@ -269,7 +284,7 @@ if __name__=="__main__":
     col_names = par_result[0].split("|")
     split_data = [item.split("|") for item in par_result[1:]]
     df = pd.DataFrame(split_data, columns=col_names).astype(str)
-    print(df.head())
+
     df['TimelimitRaw'] = df['TimelimitRaw'].replace('', '0') 
     df['TimelimitRaw'] = df['TimelimitRaw'].astype(int)
     df['Priority'] = df['Priority'].astype(int)
@@ -292,14 +307,22 @@ if __name__=="__main__":
     
     
     # TODO: Potentially use
-    # # features for pred run time = ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
-    # #                  "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node", "par_total_gpu"]
-    # tree_reg_path = "path_to_model"
-    # reg = pickle.loads(tree_reg_path)
-    # df["PredRuntime"] = reg.predict(df[["Priority", "TimelimitRaw", "ReqCPUS",
-    #                                     "ReqMem", "ReqNodes", "par_total_nodes",
-    #                                     "par_total_cpu", "par_cpu_per_node",
-    #                                     "par_mem_per_node", "par_total_gpu"]])
+    # features for pred run time = ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
+    #                  "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node", "par_total_gpu"]
+    with open('decision_tree_regressor.pkl', 'rb') as f:
+        reg = pickle.load(f)
+    df["PredRuntime"] = reg.predict(df[["Priority", "TimelimitRaw", "ReqCPUS",
+                                        "ReqMem", "ReqNodes", "par_total_nodes",
+                                        "par_total_cpu", "par_cpu_per_node",
+                                        "par_mem_per_node", "par_total_gpu"]])
+    
+    main_pred_runtime = reg.predict([result[2], result[1], result[3], result[4], result[5],
+                                     partition_feature_dict[result[0]][0],
+                                     partition_feature_dict[result[0]][1],
+                                     partition_feature_dict[result[0]][2],
+                                     partition_feature_dict[result[0]][3],
+                                     partition_feature_dict[result[0]][4]
+                                     ])
       
     running_df = df[df["State"] == "RUNNING"]
     queue_df = df[df["State"] == "PENDING"]
@@ -308,7 +331,7 @@ if __name__=="__main__":
                                            | user_past_day_df["State"] == "COMPLETED"]
         
     # Make input array from dataframes and result
-    input_arr = make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day_df)
+    input_arr = make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day_df, main_pred_runtime)
 
     # Loading and running model
     model = nn_model(input_dim, hl1, hl2, hl3, dropout, activ)
@@ -327,4 +350,7 @@ if __name__=="__main__":
     
     
     
+   
+                    
+      
     
