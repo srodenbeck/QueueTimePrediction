@@ -538,6 +538,8 @@ def main(argv):
     
     print(feature_names)
     
+    scores = []
+    
     for train_index, test_index in tscv.split(np_array):
         total_models += 1
         test_rows = new_df.iloc[test_index]
