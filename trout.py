@@ -6,10 +6,10 @@ import subprocess
 import torch.nn as nn
 import pandas as pd
 import numpy as np
-import pickle
 from sklearn.tree import DecisionTreeRegressor
 from datetime import datetime, timedelta
-
+import joblib
+from torch import load
 
 class nn_model(nn.Module):
     def __init__(self, input_dim, hl1, hl2, hl3, dropout, activ):
@@ -142,7 +142,7 @@ def make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day
     # ReqCPUS
     feature_vals.append(result[3])
     # ReqMem
-    feature_vals.append(result[4])
+    feature_vals.append(memory_to_gigabytes(result[4]))
     # ReqNodes
     feature_vals.append(result[5])
     
@@ -209,12 +209,14 @@ def make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day
     feature_vals.append(sum(running_df["PredRuntime"]))
 
     input_arr = np.array(feature_vals)
+
+    input_arr = np.log1p(input_arr)
     
     return input_arr
 
 
 
-input_dim = 30
+input_dim = 33
 hl1 = 32
 hl2 = 64
 hl3 = 32
@@ -304,33 +306,35 @@ if __name__=="__main__":
     # TODO: Potentially use
     # features for pred run time = ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
     #                  "par_total_nodes", "par_total_cpu", "par_cpu_per_node", "par_mem_per_node", "par_total_gpu"]
-    with open('decision_tree_regressor.pkl', 'rb') as f:
-        reg = pickle.load(f)
+    
+    reg = joblib.load('pred_runtime.joblib')
+
     df["PredRuntime"] = reg.predict(df[["Priority", "TimelimitRaw", "ReqCPUS",
                                         "ReqMem", "ReqNodes", "par_total_nodes",
                                         "par_total_cpu", "par_cpu_per_node",
                                         "par_mem_per_node", "par_total_gpu"]])
     
-    main_pred_runtime = reg.predict([result[2], result[1], result[3], result[4], result[5],
+    main_pred_runtime = reg.predict([[result[2], result[1], result[3], memory_to_gigabytes(result[4]), result[5],
                                      partition_feature_dict[result[0]][0],
                                      partition_feature_dict[result[0]][1],
                                      partition_feature_dict[result[0]][2],
                                      partition_feature_dict[result[0]][3],
                                      partition_feature_dict[result[0]][4]
-                                     ])
+                                     ]])
       
     running_df = df[df["State"] == "RUNNING"]
     queue_df = df[df["State"] == "PENDING"]
-    queue_ahead_df = queue_df[queue_df[["Priority"] > result[2]]]
-    user_past_day_df= user_past_day_df[user_past_day_df["State"] == "RUNNING"
-                                           | user_past_day_df["State"] == "COMPLETED"]
+    queue_ahead_df = queue_df[queue_df["Priority"] > int(result[2])]
+    user_past_day_df= user_past_day_df[user_past_day_df["State"] == "RUNNING"]
+    user_past_day_df = user_past_day_df[user_past_day_df["State"] == "COMPLETED"]
         
     # Make input array from dataframes and result
     input_arr = make_input_array(result, queue_ahead_df, queue_df, running_df, user_past_day_df, main_pred_runtime)
+    input_dim = len(input_arr)
 
     # Loading and running model
     model = nn_model(input_dim, hl1, hl2, hl3, dropout, activ)
-    model.load_state_dict(model_state_dict_path)
+    model.load_state_dict(load(model_state_dict_path))
     model.eval()
     
     # Pred is estimated time in minutes until start
