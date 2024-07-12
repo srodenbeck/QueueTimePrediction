@@ -29,7 +29,7 @@ from model import nn_model
 
 
 
-flags.DEFINE_integer('n_jobs', 100_000, 'Number of jobs to train on.')
+flags.DEFINE_integer('n_jobs', 0, 'Number of jobs to train on.')
 flags.DEFINE_boolean('cuda', False, 'Whether to use cuda.')
 flags.DEFINE_float('lr', 0.001, 'Learning rate.')
 flags.DEFINE_integer('batch_size', 32, 'Batch size')
@@ -65,6 +65,7 @@ gl_num_features = None
 gl_feature_names = None
 gl_tscv = None
 gl_run = None
+gl_best_score = -1
 
 
 def get_planned_target_index(df):
@@ -228,6 +229,7 @@ def define_model(num_features, style):
 
 def train_model(trial, is_ret_model=False):
     global gl_custom_loss
+    global gl_best_score
     loss_by_fold = []
     scores = []
 
@@ -239,7 +241,7 @@ def train_model(trial, is_ret_model=False):
     num_features = gl_num_features
     feature_names = gl_feature_names
 
-    loss_fn = trial.suggest_categorical("loss_fn", ["L1Loss", "SmoothL1Loss", "MSE"])
+    loss_fn = trial.suggest_categorical("loss_fn", ["L1Loss", "SmoothL1Loss"])
     hl_1 = trial.suggest_int("hl1", 16, 96)
     hl_2 = trial.suggest_int("hl1", 16, 96)
     print(f"{loss_fn=}")
@@ -392,12 +394,12 @@ def train_model(trial, is_ret_model=False):
         test_data = np.concatenate(test_data, axis=0)
         X_to_explain = test_data[50:55]
         # Create SHAP explainer
-        explainer = shap.KernelExplainer(predict_function, background_data)
+        # explainer = shap.KernelExplainer(predict_function, background_data)
         # Calculate SHAP values
-        shap_values = explainer.shap_values(X_to_explain)
+        # shap_values = explainer.shap_values(X_to_explain)
         # Visualize SHAP values for the first instance in the test set
-        shap.initjs()
-        shap.summary_plot(shap_values, X_to_explain, feature_names=feature_names)
+        # shap.initjs()
+        # shap.summary_plot(shap_values, X_to_explain, feature_names=feature_names)
         # shap.force_plot(explainer.expected_value, shap_values[0], test_data[0])
 
         total = 0
@@ -452,11 +454,13 @@ def train_model(trial, is_ret_model=False):
         run["test/buffer_within_100_perc"].append((within_100_perc_plus1hr_buffer / total) * 100)
         run["test/buffer_within_50_perc"].append((within_50_perc_plus1hr_buffer / total) * 100)
         run["test/my_metric_1"].append((my_metric_1 / total) * 100)
-        scores.append((within_100_perc_plus1hr_buffer / total) * 100)
+        score = (my_metric_1 / total) * 100
 
-    return np.mean(scores)
+        if score > gl_best_score:
+            torch.save(model.state_dict(), "aus_reg_model.pt")
+            gl_best_score = score
 
-
+    return score
 
 
 
@@ -532,7 +536,7 @@ def start_trials():
     )
 
     # Feature names to use in training
-    feature_names = classify_train.feature_options("mid")
+    feature_names = classify_train.feature_options("austin_hypo_4")
     num_jobs = FLAGS.n_jobs
     read_all = True if num_jobs == 0 else False
 
@@ -548,8 +552,6 @@ def start_trials():
         'batch_size': FLAGS.batch_size,
         'epochs': FLAGS.epochs,
         'optimizer': FLAGS.optimizer,
-        'hl1': FLAGS.hl1,
-        'hl2': FLAGS.hl2,
         'dropout': FLAGS.dropout,
         '10_min_plus': FLAGS.only_10min_plus
     }
@@ -561,7 +563,7 @@ def start_trials():
     n_splits = 5
     gl_tscv = TimeSeriesSplit(n_splits=n_splits, test_size=len(gl_np_array) // (2 * n_splits + 1))
 
-    sampler = TPESampler(n_startup_trials=25)
+    sampler = TPESampler(n_startup_trials=50)
     study = optuna.create_study(direction='maximize', study_name='namez', sampler=sampler)
     study.optimize(objective, n_trials=100)
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
@@ -578,10 +580,8 @@ def start_trials():
     for key, value in trial.params.items():
         print("    {}: {}".format(key, value))
 
+    npt_utils.log_study_metadata(study, gl_run)
 
-    # Save models state dict
-    # torch.save(model.state_dict(), "regr_model.pt")
-    
     gl_run.stop()
 
 def main(argv):

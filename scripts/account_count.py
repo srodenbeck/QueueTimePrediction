@@ -3,7 +3,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-df = pd.read_csv("account_count.csv")
+df = pd.read_csv("../account_count.csv")
 
 df = df.iloc[:100, :]
 

@@ -10,7 +10,9 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from scipy.stats import pearsonr
 from sklearn.tree import DecisionTreeRegressor
-import pickle
+# import pickle
+
+import joblib
 
 
 partition_feature_dict = {
@@ -114,6 +116,9 @@ if __name__ == "__main__":
     
     df["predicted_run_time"] = reg.predict(df[feature_names])
     
-    with open('decision_tree_regressor.pkl', 'wb') as f:
-        pickle.dump(reg, f)
+    # with open('decision_tree_regressor.pkl', 'wb') as f:
+    #     pickle.dump(reg, f)
+
+    joblib.dump(reg, 'predtime.joblib')
+
     

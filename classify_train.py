@@ -226,7 +226,7 @@ def feature_options(features):
     elif features == "austin_hypo_4":
         return ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes", "partition",
                 "par_nodes_available_running_queue_priority", "par_cpus_available_running_queue_priority",
-                "par_memory_available_running_queue_priority"]
+                "par_memory_available_running_queue_priority", "user_time_limit_past_day"]
     elif features == "austin_hypo_5":
         return ["priority", "time_limit_raw", "req_cpus", "req_mem", "partition",
                 "par_nodes_available_running_queue_priority", "user_time_limit_past_day"]

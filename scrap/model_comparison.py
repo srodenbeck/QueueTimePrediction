@@ -169,7 +169,7 @@ dataloader = DataLoader(dataset, batch_size=FLAGS.batch_size)
 
 print("Data finished transformations")
 
-PATH = "regr_model.pt"
+PATH = "../regr_model.pt"
 # Create model
 model = nn_model(num_features, FLAGS.hl1, FLAGS.hl2, FLAGS.dropout, FLAGS.activ)
 model.load_state_dict(torch.load(PATH))
