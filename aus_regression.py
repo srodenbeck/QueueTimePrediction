@@ -21,6 +21,7 @@ from optuna.samplers import TPESampler
 import optuna
 from optuna.trial import TrialState
 import neptune.integrations.optuna as npt_utils
+import time
 
 import classify_train
 import config_file
@@ -242,11 +243,6 @@ def train_model(trial, is_ret_model=False):
     feature_names = gl_feature_names
 
     loss_fn = trial.suggest_categorical("loss_fn", ["L1Loss", "SmoothL1Loss"])
-    hl_1 = trial.suggest_int("hl1", 16, 96)
-    hl_2 = trial.suggest_int("hl1", 16, 96)
-    print(f"{loss_fn=}")
-    print(f"{hl_1=}")
-    print(f"{hl_2=}")
 
     # train_dataloader, test_dataloader, val_dataloader = create_dataloaders(X_rows, y_rows)
 
@@ -254,7 +250,9 @@ def train_model(trial, is_ret_model=False):
         train_dataloader, test_dataloader = create_dataloaders_tscv(X_rows, y_rows, train_index, test_index)
 
         # Create model
-        style = trial.suggest_categorical("architecture_style", ["small_wide", "small_thin", "large_wide", "large_thin", "very_large", "idklol"])
+        # style = trial.suggest_categorical("architecture_style", ["small_wide", "small_thin", "large_wide", "large_thin", "very_large", "idklol"])
+        style = trial.suggest_categorical("architecture_style", ["very_large"])
+
         model = define_model(num_features, style)
         # model = nn_model(num_features, hl_1, hl_2, FLAGS.dropout, FLAGS.activ)
         if loss_fn == "L1Loss":
@@ -351,26 +349,26 @@ def train_model(trial, is_ret_model=False):
 
         loss_by_fold.append(avg_test_loss)
 
-        print(f"Average test loss of {avg_test_loss}")
-        bin_width = 0.1
-        bins = np.arange(min(absolute_percentage_error), max(absolute_percentage_error) + bin_width, bin_width)
-        plt.hist(absolute_percentage_error, bins=bins, density=True)
-        plt.xlabel('Absolute Percentage Error')
-        plt.ylabel('Probability Density')
-        plt.title("Density Histogram of Absolute Percentage Error of Test Data")
-        plt.ylim(0.0, 1.0)
-        plt.xlim(0.0, 1.0)
+        # print(f"Average test loss of {avg_test_loss}")
+        # bin_width = 0.1
+        # bins = np.arange(min(absolute_percentage_error), max(absolute_percentage_error) + bin_width, bin_width)
+        # plt.hist(absolute_percentage_error, bins=bins, density=True)
+        # plt.xlabel('Absolute Percentage Error')
+        # plt.ylabel('Probability Density')
+        # plt.title("Density Histogram of Absolute Percentage Error of Test Data")
+        # plt.ylim(0.0, 1.0)
+        # plt.xlim(0.0, 1.0)
         # plt.show()
 
         # Average absolute percentage error
-        avg_ape = np.mean(absolute_percentage_error)
-        print("Mean absolute percentage error:", avg_ape * 100, "%")
-
-        r_value = pearsonr(y_pred, y_actual)
-        print("pearson's r: ", r_value)
-        plt.scatter(y_pred, y_actual)
-        plt.xlabel("y predicted")
-        plt.ylabel("y")
+        # avg_ape = np.mean(absolute_percentage_error)
+        # print("Mean absolute percentage error:", avg_ape * 100, "%")
+        #
+        # r_value = pearsonr(y_pred, y_actual)
+        # print("pearson's r: ", r_value)
+        # plt.scatter(y_pred, y_actual)
+        # plt.xlabel("y predicted")
+        # plt.ylabel("y")
         # plt.show()
 
         model.eval()
@@ -458,6 +456,8 @@ def train_model(trial, is_ret_model=False):
 
         if score > gl_best_score:
             torch.save(model.state_dict(), "aus_reg_model.pt")
+            gl_run["best/model"].append(style)
+            gl_run["best/loss"].append(loss_fn)
             gl_best_score = score
 
     return score
@@ -472,6 +472,22 @@ def calculate_custom_loss(pred, y, train_test_val):
     pred[pred < 0] = 0
     gl_custom_loss[f"{train_test_val}_within_1hr_total"] += binary_within.shape[0]
     gl_custom_loss[f"{train_test_val}_within_1hr_correct"] += binary_within.sum().item()
+
+
+def scale_greedy_users(df):
+    scale = 0.2
+    top_accs = config_file.top_50_accs
+    print(f"{top_accs=}")
+
+    pd.options.mode.chained_assignment = None
+    match_df = df[df['account'].isin(top_accs)]
+    match_df['time_limit_raw'] = match_df['time_limit_raw'] * scale
+    match_df['req_cpus'] = match_df['req_cpus'] * scale
+    match_df['req_mem'] = match_df['req_mem'] * scale
+    match_df['req_nodes'] = match_df['req_nodes'] * scale
+
+    df.update(match_df)
+    return df
 
 def load_data(read_all=True, num_jobs=0, feature_names=None):
     print("Reading from database")
@@ -500,8 +516,10 @@ def load_data(read_all=True, num_jobs=0, feature_names=None):
     print(f"{num_features=}")
 
     # Transform data if only_10min_plus flag is on, discards data with planned < 10 minutes.
-    df = df[df['planned'] > 10 * 60]
+    # df = df[df['planned'] > 10 * 60]
     print(f"Using {len(df)} jobs")
+
+    df = scale_greedy_users(df)
 
     np_array = df.to_numpy()
 
@@ -563,9 +581,9 @@ def start_trials():
     n_splits = 5
     gl_tscv = TimeSeriesSplit(n_splits=n_splits, test_size=len(gl_np_array) // (2 * n_splits + 1))
 
-    sampler = TPESampler(n_startup_trials=50)
+    sampler = TPESampler(n_startup_trials=10)
     study = optuna.create_study(direction='maximize', study_name='namez', sampler=sampler)
-    study.optimize(objective, n_trials=100)
+    study.optimize(objective, n_trials=40)
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
     trial = study.best_trial

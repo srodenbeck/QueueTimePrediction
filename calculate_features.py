@@ -605,6 +605,93 @@ def calculate_remaining_higher_priority_queue_features():
     engine.dispose()
 
 
+def calculate_queue_avg_wait_features():
+    engine = read_db.create_engine()
+    # Read in dataframe
+    all_df = pd.read_sql_query("SELECT * FROM new_features_1milly_user ORDER BY eligible", engine)
+    df = pd.read_sql_query(
+        "SELECT job_id, eligible, start_time, end_time, req_cpus, req_mem, req_nodes, time_limit_raw, partition FROM new_features_1milly_user ORDER BY eligible",
+        engine)
+    engine.dispose()
+
+    df['start_time'] = df['start_time'].apply(lambda x: x.timestamp()).astype('int64')
+    df['end_time'] = df['end_time'].apply(lambda x: x.timestamp()).astype('int64')
+    df['eligible'] = df['eligible'].apply(lambda x: x.timestamp()).astype('int64')
+    np_array = df.to_numpy()
+
+    idx_dict = {
+        "JOB_ID": 0,
+        "ELIGIBLE": 1,
+        "START_TIME": 2,
+        "END_TIME": 3,
+        "REQ_CPUS": 4,
+        "REQ_MEM": 5,
+        "REQ_NODES": 6,
+        "TIME_LIMIT_RAW": 7,
+        "PARTITION": 8
+    }
+
+    # Columns: job_id, jobs_ahead_queue, cpus_ahead_queue, memory_ahead_queue, nodes_ahead_queue, time_limit_raw
+    queue_features = np.zeros((np_array.shape[0], 6))
+    par_queue_features = np.zeros((np_array.shape[0], 6))
+
+    num_trees = 50
+    tree_size = 100000
+    tree_overlap = 10000
+
+    # Creation of interval trees
+    count = 0
+    tree_idx = 0
+    trees = []
+    for i in range(num_trees):
+        trees.append(IntervalTree())
+    for job_idx in tqdm(range(np_array.shape[0])):
+        count += 1
+        if np_array[job_idx, idx_dict["ELIGIBLE"]] != np_array[job_idx, idx_dict["START_TIME"]]:
+            trees[tree_idx][np_array[job_idx, idx_dict["ELIGIBLE"]]:np_array[job_idx, idx_dict["START_TIME"]]] = job_idx
+        # Make last tree size of 3 normal trees to prevent edge case issues
+        if count == tree_size and ((np_array.shape[0] - job_idx) > (3 * tree_size)):
+            tmp = sorted(trees[tree_idx])[-tree_overlap:]
+            for interval in tmp:
+                trees[tree_idx + 1][interval[0]:interval[1]] = interval[2]
+            if tree_idx != 0:
+                tmp = sorted(trees[tree_idx])[0:tree_overlap]
+                for interval in tmp:
+                    trees[tree_idx - 1][interval[0]:interval[1]] = interval[2]
+            tree_idx += 1
+            count = 0
+
+    # Loop through jobs and add in data for all jobs whose trees overlap
+    tree_idx = 0
+    count = 0
+    for job_idx in tqdm(range(np_array.shape[0])):
+        sum = 0
+        count += 1
+        overlapping_count = 0
+        par_queue_features[job_idx, 0] = np_array[job_idx, idx_dict["JOB_ID"]]
+        start_time = np_array[job_idx, idx_dict["ELIGIBLE"]]
+        for overlapping in trees[tree_idx][np_array[job_idx, idx_dict["ELIGIBLE"]]]:
+            if overlapping[2] != np_array[job_idx, idx_dict["JOB_ID"]]:
+                if np_array[overlapping[2], idx_dict["PARTITION"]] == np_array[job_idx, idx_dict["PARTITION"]]:
+                    overlapping_count += 1
+                    diff = start_time - np_array[overlapping[2], idx_dict["ELIGIBLE"]]
+                    sum += diff
+        avg = 0
+        if overlapping_count != 0:
+            avg = sum / overlapping_count
+        par_queue_features[job_idx, 1] = avg
+
+        if count == tree_size and ((np_array.shape[0] - job_idx) > (3 * tree_size)):
+            tree_idx += 1
+            count = 0
+
+    new_df = pd.DataFrame(
+        {"job_id": par_queue_features[:, 0].astype(np.uint32),
+         "par_avg_queue_time": par_queue_features[:, 1].astype(np.float32)})
+    result = pd.merge(all_df, new_df, how="left", on=["job_id"])
+    engine = read_db.create_engine()
+    result.to_sql('new_features_1milly_user_avgwait', engine, if_exists='replace', index=False)
+    engine.dispose()
 
 
 if __name__ == '__main__':
@@ -612,6 +699,6 @@ if __name__ == '__main__':
     # calculate_queue_features()
     # calculate_higher_priority_queue_features()
     # calculate_user_features()
-    calculate_remaining_running_by_partition()
-    calculate_remaining_higher_priority_queue_features()
-
+    # calculate_remaining_running_by_partition()
+    # calculate_remaining_higher_priority_queue_features()
+    calculate_queue_avg_wait_features()

@@ -6,6 +6,8 @@ from optuna.samplers import TPESampler
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_auc_score
 import numpy as np
 import sys
 import neptune
@@ -15,20 +17,21 @@ import imblearn.over_sampling
 import optuna
 from optuna.trial import TrialState
 import pandas as pd
+import matplotlib.pyplot as plt
 
 import config_file
 import read_db
 
-# flags.DEFINE_integer('batch_size', 32, 'Batch size')
-# flags.DEFINE_boolean('shuffle', True, 'Shuffle training/validation set')
-# flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
-# flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
-# flags.DEFINE_integer('epochs', 60, 'Number of epochs')
-# flags.DEFINE_float('lr', 0.001, 'Learning rate')
-# flags.DEFINE_enum('activ_fn', "leaky_relu", ['leaky_relu', 'relu'], 'Activation Function')
-# flags.DEFINE_integer('n_jobs', 800_000, 'Number of jobs to run on')
-# flags.DEFINE_boolean('condense_jobs', True, 'Condense jobs submitted by same user')
-# FLAGS = flags.FLAGS
+flags.DEFINE_integer('batch_size', 32, 'Batch size')
+flags.DEFINE_boolean('shuffle', False, 'Shuffle training/validation set')
+flags.DEFINE_float('oversample', 0.4, 'Oversampling factor')
+flags.DEFINE_float('undersample', 0.8, 'Undersampling factor')
+flags.DEFINE_integer('epochs', 60, 'Number of epochs')
+flags.DEFINE_float('lr', 0.001, 'Learning rate')
+flags.DEFINE_enum('activ_fn', "leaky_relu", ['leaky_relu', 'relu'], 'Activation Function')
+flags.DEFINE_integer('n_jobs', 800_000, 'Number of jobs to run on')
+flags.DEFINE_boolean('condense_jobs', True, 'Condense jobs submitted by same user')
+FLAGS = flags.FLAGS
 
 gl_df = None
 gl_X = None
@@ -36,14 +39,14 @@ gl_y_one_hot = None
 gl_feature_mapping_dict = None
 
 gl_hyp_param = {
-    "transformations": ["log", "min_max"],
+    "transformations": ["min_max"],
     "n_layers_low": 2,
     "n_layers_high": 3,
-    "layer_size_low": 16,
+    "layer_size_low": 32,
     "layer_size_high": 128,
     "dropout_low": -1,
     "dropout_high": -1,
-    "features": ["austin_hypo_2", "queue_request", "user"]
+    "features": ["austin_hypo_6"]
 }
 
 
@@ -182,7 +185,8 @@ def feature_options(features):
                 "time_limit_ahead_queue",
                 "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes"]
     elif features == "user":
-        return ["user_jobs_past_day", "user_cpus_past_day", "user_memory_past_day", "user_nodes_past_day", "user_time_limit_past_day"]
+        return ["user_jobs_past_day", "user_cpus_past_day", "user_memory_past_day", "user_nodes_past_day",
+                "user_time_limit_past_day"]
     elif features == "qos":
         out = []
         for feature in gl_df.columns:
@@ -190,15 +194,16 @@ def feature_options(features):
                 out.append(feature)
         return out
     elif features == "partition":
-        out = ["par_jobs_running", "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
+        out = ["par_jobs_running", "par_cpus_running", "par_memory_running", "par_nodes_running",
+               "par_time_limit_running"]
         for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
         return out
     elif features == "all_more":
         out = ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
-                "time_limit_ahead_queue", "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
-                "jobs_running", "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
+               "time_limit_ahead_queue", "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
+               "jobs_running", "cpus_running", "memory_running", "nodes_running", "time_limit_running"]
         for feature in gl_df.columns:
             if "qos_" in feature:
                 out.append(feature)
@@ -207,7 +212,8 @@ def feature_options(features):
                 out.append(feature)
         return out
     elif features == "austin_hypo":
-        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue", "par_jobs_running", "par_cpus_running", "user_memory_past_day", "user_cpus_past_day"]
+        out = ["priority", "req_cpus", "req_mem", "user_id", "cpus_ahead_queue", "memory_ahead_queue",
+               "par_jobs_running", "par_cpus_running", "user_memory_past_day", "user_cpus_past_day"]
         for feature in gl_df.columns:
             if "partition_" in feature:
                 out.append(feature)
@@ -216,8 +222,10 @@ def feature_options(features):
         return ["jobs_ahead_queue", "cpus_ahead_queue", "memory_ahead_queue", "nodes_ahead_queue",
                 "time_limit_ahead_queue",
                 "priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
-                "user_jobs_past_day", "user_cpus_past_day", "user_memory_past_day", "user_nodes_past_day", "user_time_limit_past_day",
-                "par_jobs_running", "par_cpus_running", "par_memory_running", "par_nodes_running", "par_time_limit_running"]
+                "user_jobs_past_day", "user_cpus_past_day", "user_memory_past_day", "user_nodes_past_day",
+                "user_time_limit_past_day",
+                "par_jobs_running", "par_cpus_running", "par_memory_running", "par_nodes_running",
+                "par_time_limit_running"]
     elif features == "austin_hypo_3":
         return ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes", "partition",
                 "par_nodes_available", "par_cpus_available", "par_memory_available",
@@ -226,14 +234,17 @@ def feature_options(features):
     elif features == "austin_hypo_4":
         return ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes", "partition",
                 "par_nodes_available_running_queue_priority", "par_cpus_available_running_queue_priority",
-                "par_memory_available_running_queue_priority", "user_time_limit_past_day"]
+                "par_memory_available_running_queue_priority"]
     elif features == "austin_hypo_5":
         return ["priority", "time_limit_raw", "req_cpus", "req_mem", "partition",
                 "par_nodes_available_running_queue_priority", "user_time_limit_past_day"]
+    elif features == "austin_hypo_6":
+        return ["priority", "time_limit_raw", "req_cpus", "req_mem", "req_nodes",
+                "par_nodes_available_running_queue_priority", "par_cpus_available_running_queue_priority",
+                "par_memory_available_running_queue_priority", "par_avg_queue_time"]
     elif features == "mid":
         return ["priority", "time_limit_raw", "req_cpus", "req_mem",
                 "par_nodes_available_running_queue_priority", "user_time_limit_past_day"]
-
 
 
 def train_model(trial, is_ret_model=False):
@@ -246,7 +257,7 @@ def train_model(trial, is_ret_model=False):
         feature_idxs.append(feature_mapping_dict[feature])
     X = X[:, feature_idxs]
 
-    transform = trial.suggest_categorical("transform", ["none", "log", "min_max"])
+    transform = trial.suggest_categorical("transform", gl_hyp_param["transformations"])
 
     train_dataloader, test_dataloader = create_dataloaders(X, y_one_hot, transform)
     model = define_model(trial, num_features)
@@ -314,11 +325,18 @@ def detailed_objective(trial, X_test, y_test, y_test_planned):
     misses = 0
     marginal_misses = 0
 
+    preds = []
+    ns_probs = []
     model.eval()
     for i in range(y_test.shape[0]):
+        ns_probs.append(0)
         pred = model(X_test[i])
         true_class = torch.argmax(y_test[i]).item()
         pred_class = torch.argmax(pred).item()
+        if pred_class == 0:
+            preds.append([1, 0])
+        else:
+            preds.append([0, 1])
         raw_mins = y_test_planned[i] / 60
         if raw_mins >= 60:
             over_hour_total += 1
@@ -343,6 +361,43 @@ def detailed_objective(trial, X_test, y_test, y_test_planned):
     percent_misses_marginal = marginal_misses / misses
     print(f"percent of misses that are marginal: {percent_misses_marginal}    ------ total misses {misses}")
 
+    # keep probabilities for the positive outcome only
+    # lr_probs = preds[:, 1]
+    lr_probs = np.zeros(len(preds))
+    for i in range(len(preds)):
+        if preds[i][0] == 1:
+            lr_probs[i] = 0
+        else:
+            lr_probs[i] = 1
+    # calculate scores
+    y_test_np = y_test.detach().numpy()
+    test_y = np.zeros(y_test_np.shape[0])
+    for i in range(y_test_np.shape[0]):
+        if y_test_np[i][0] == 1:
+            test_y[i] = 0
+        else:
+            test_y[i] = 1
+
+
+    ns_auc = roc_auc_score(test_y, ns_probs)
+    lr_auc = roc_auc_score(test_y, lr_probs)
+    # summarize scores
+    print('No Skill: ROC AUC=%.3f' % (ns_auc))
+    print('Logistic: ROC AUC=%.3f' % (lr_auc))
+    # calculate roc curves
+    ns_fpr, ns_tpr, _ = roc_curve(test_y, ns_probs)
+    lr_fpr, lr_tpr, _ = roc_curve(test_y, lr_probs)
+    # plot the roc curve for the model
+    plt.plot(ns_fpr, ns_tpr, linestyle='--', label='No Skill')
+    plt.plot(lr_fpr, lr_tpr, marker='.', label='Logistic')
+    # axis labels
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    # show the legend
+    plt.legend()
+    # show the plot
+    plt.show()
+
     torch.save(model.state_dict(), "classify_model.pt")
 
     return total_acc
@@ -355,12 +410,12 @@ def load_data():
     global gl_feature_mapping_dict
     num_jobs = FLAGS.n_jobs
     read_all = True if num_jobs == 0 else False
-    gl_df = read_db.read_to_df(table="jobs_everything_tmp", read_all=read_all, jobs=num_jobs, order_by="eligible", condense_same_times=FLAGS.condense_jobs)
+    gl_df = read_db.read_to_df(table="new_features_1milly_user_avgwait", read_all=read_all, jobs=num_jobs, order_by="eligible",
+                               condense_same_times=FLAGS.condense_jobs)
     print(len(gl_df.index))
     gl_df = gl_df.sort_values(by=["eligible"], ascending=True)
     ten_perc = int(num_jobs / 10)
-    
-    # Adding support for one hot
+
     gl_df = transformations.make_one_hot(gl_df, "partition")
     gl_df = transformations.make_one_hot(gl_df, "qos", 3)
 
@@ -393,9 +448,9 @@ def start_trials():
         tags=["classify"]
     )
 
-    sampler = TPESampler(n_startup_trials=25)
+    sampler = TPESampler(n_startup_trials=5)
     study = optuna.create_study(direction='maximize', study_name='namez', sampler=sampler)
-    study.optimize(objective, n_trials=100)
+    study.optimize(objective, n_trials=20)
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
     trial = study.best_trial
