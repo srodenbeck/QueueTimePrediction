@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "TROUT: A Hierarchical Deep Learning Approach for HPC Queue Time Prediction"
+title-short: "TROUT"
+authors:
+  - family-names: Wisniewski
+    given-names: Philip
+    orcid: https://orcid.org/my-orcid?orcid=0009-0006-0009-8492
+  - family-names: Lovell
+    given-names: Austin
+  - family-names: Ashish
+    given-names: ""
+  - family-names: Rodenbeck
+    given-names: Sarah
+    orcid: https://orcid.org/0009-0005-0352-7929
+
+version: 1.0.0
+repository-code: https://github.com/srodenbeck/QueueTimePrediction
