@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "TROUT: A Hierarchical Deep Learning Approach for HPC Queue Time Prediction"
+title: "A Hierarchical Deep Learning Approach for HPC Queue Time Prediction"
 title-short: "TROUT"
 authors:
   - family-names: Wisniewski
